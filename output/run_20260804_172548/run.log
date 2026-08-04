@@ -1,0 +1,92 @@
+2026-08-04 17:25:53,869 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-04 17:26:05,169 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.schemas
+2026-08-04 17:26:05,170 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.tables
+2026-08-04 17:26:05,171 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.types
+2026-08-04 17:26:05,177 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.constraints
+2026-08-04 17:26:05,188 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.defaults
+2026-08-04 17:26:05,189 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.comments
+2026-08-04 17:27:33,970 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-04 17:27:34,058 | INFO    | alembic.runtime.migration | Context impl SQLiteImpl.
+2026-08-04 17:27:34,059 | INFO    | alembic.runtime.migration | Will assume transactional DDL.
+2026-08-04 17:27:34,454 | INFO    | alembic.runtime.migration | Running upgrade  -> cf03bd6bae1d, init
+2026-08-04 17:27:34,981 | INFO    | alembic.runtime.migration | Running upgrade cf03bd6bae1d -> 10460e46d750, datasets
+2026-08-04 17:27:35,098 | INFO    | alembic.runtime.migration | Running upgrade 10460e46d750 -> 3be8647b87d8, add token columns to spans table
+2026-08-04 17:27:35,124 | INFO    | alembic.runtime.migration | Running upgrade 3be8647b87d8 -> cd164e83824f, users and tokens
+2026-08-04 17:27:35,229 | INFO    | alembic.runtime.migration | Running upgrade cd164e83824f -> 4ded9e43755f, create project_session table
+2026-08-04 17:27:35,413 | INFO    | alembic.runtime.migration | Running upgrade 4ded9e43755f -> bc8fea3c2bc8, Add prompt tables
+2026-08-04 17:27:35,491 | INFO    | alembic.runtime.migration | Running upgrade bc8fea3c2bc8 -> 2f9d1a65945f, Annotation config migrations
+2026-08-04 17:27:37,154 | INFO    | alembic.runtime.migration | Running upgrade 2f9d1a65945f -> bb8139330879, create project trace retention policies table
+2026-08-04 17:27:37,243 | INFO    | alembic.runtime.migration | Running upgrade bb8139330879 -> 8a3764fe7f1a, change jsonb to json for prompts
+2026-08-04 17:27:37,461 | INFO    | alembic.runtime.migration | Running upgrade 8a3764fe7f1a -> 6a88424799fe, Add auth_method column to users table and migrate existing authentication data.
+2026-08-04 17:27:37,569 | INFO    | alembic.runtime.migration | Running upgrade 6a88424799fe -> a20694b15f82, Cost-related tables
+2026-08-04 17:27:37,620 | INFO    | alembic.runtime.migration | Running upgrade a20694b15f82 -> 272b66ff50f8, drop single indices from traces, project_sessions, and experiment_runs
+2026-08-04 17:27:37,644 | INFO    | alembic.runtime.migration | Running upgrade 272b66ff50f8 -> 735d3d93c33e, add composite indices to traces and project_sessions
+2026-08-04 17:27:37,652 | INFO    | alembic.runtime.migration | Running upgrade 735d3d93c33e -> 0df286449799, add session annotations table
+2026-08-04 17:27:37,666 | INFO    | alembic.runtime.migration | Running upgrade 0df286449799 -> 01a8342c9cdf, add user_id on datasets
+2026-08-04 17:27:37,717 | INFO    | alembic.runtime.migration | Running upgrade 01a8342c9cdf -> ab513d89518b, add user_id on dataset_versions
+2026-08-04 17:27:37,877 | INFO    | alembic.runtime.migration | Running upgrade ab513d89518b -> d0690a79ea51, add user_id on experiments
+2026-08-04 17:27:38,118 | INFO    | alembic.runtime.migration | Running upgrade d0690a79ea51 -> 699f655af132, experiment_tags
+2026-08-04 17:27:38,137 | INFO    | alembic.runtime.migration | Running upgrade 699f655af132 -> 58228d933c91, dataset_labels
+2026-08-04 17:27:38,163 | INFO    | alembic.runtime.migration | Running upgrade 58228d933c91 -> e76cbd66ffc3, add experiments_dataset_examples junction table
+2026-08-04 17:27:38,187 | INFO    | alembic.runtime.migration | Running upgrade e76cbd66ffc3 -> deb2c81c0bb2, dataset_splits
+2026-08-04 17:27:38,259 | INFO    | alembic.runtime.migration | Running upgrade deb2c81c0bb2 -> 02463bd83119, add evaluators
+2026-08-04 17:27:38,391 | INFO    | alembic.runtime.migration | Running upgrade 02463bd83119 -> 3f53d82a1b7e, add custom_provider_id to prompt_versions
+2026-08-04 17:27:38,645 | INFO    | alembic.runtime.migration | Running upgrade 3f53d82a1b7e -> a1b2c3d4e5f6, Migrate LDAP users to dedicated auth_method and ldap_unique_id column.
+2026-08-04 17:27:38,937 | INFO    | alembic.runtime.migration | Running upgrade a1b2c3d4e5f6 -> f1a6b2f0c9d5, add span session.id index
+2026-08-04 17:27:38,947 | INFO    | alembic.runtime.migration | Running upgrade f1a6b2f0c9d5 -> 9c5c1f6bd0d2, add is_ephemeral to experiments
+2026-08-04 17:27:39,257 | INFO    | alembic.runtime.migration | Running upgrade 9c5c1f6bd0d2 -> aba52fffe1a1, add experiment_jobs
+2026-08-04 17:27:39,424 | INFO    | alembic.runtime.migration | Running upgrade aba52fffe1a1 -> 575aa27302ee, dataset_upsert
+2026-08-04 17:27:39,968 | INFO    | alembic.runtime.migration | Running upgrade 575aa27302ee -> 0ff41b5b118f, add sandbox and code evaluator support
+2026-08-04 17:27:40,310 | INFO    | alembic.runtime.migration | Running upgrade 0ff41b5b118f -> d4e5f6a7b8c9, add system_settings table and index on generative_models.updated_at
+2026-08-04 17:27:40,341 | INFO    | alembic.runtime.migration | Running upgrade d4e5f6a7b8c9 -> eaf1907ae453, add composite index on project_sessions project_id end_time
+2026-08-04 17:27:40,459 | INFO    | alembic.runtime.migration | Running upgrade eaf1907ae453 -> 132d988c5bef, add oauth2 authorization server tables
+2026-08-04 17:27:41,134 | INFO    | alembic.runtime.migration | Running upgrade 132d988c5bef -> c9d0e1f2a3b4, add span user.id index
+2026-08-04 17:27:57,100 | INFO    | phoenix.server.api.builtin_evaluator_sync | Synced 5 builtin evaluators to database
+2026-08-04 17:27:57,137 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='WASM'
+2026-08-04 17:27:57,138 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='E2B'
+2026-08-04 17:27:57,138 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='DAYTONA'
+2026-08-04 17:27:57,138 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='VERCEL'
+2026-08-04 17:27:57,139 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='DENO'
+2026-08-04 17:27:57,139 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='MODAL'
+2026-08-04 17:27:57,140 | INFO    | phoenix.server.sandbox.sync | Inserted sandbox_providers row: backend_type='MONTY'
+2026-08-04 17:27:57,154 | INFO    | phoenix.server.sandbox.sync | Inserted default sandbox_configs row: backend_type='DENO', language='TYPESCRIPT'
+2026-08-04 17:27:57,160 | INFO    | phoenix.server.sandbox.sync | Inserted default sandbox_configs row: backend_type='MONTY', language='PYTHON'
+2026-08-04 17:27:57,242 | INFO    | phoenix.server.sandbox._download | Downloading WASM binary from https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python%2F3.12.0%2B20231211-040d5a6/python-3.12.0.wasm → C:\Users\hppro\.phoenix\wasm\python-3.12.0.wasm
+2026-08-04 17:27:57,667 | WARNING | phoenix.server.sandbox._download | WASM sandbox binary pre-fetch failed: Failed to download WASM binary: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>
+2026-08-04 17:28:00,742 | INFO    | httpx | HTTP Request: POST https://arizeai-433a7140.mintlify.app/mcp "HTTP/1.1 200 OK"
+2026-08-04 17:28:00,745 | INFO    | mcp.client.streamable_http | Negotiated protocol version: 2025-11-25
+2026-08-04 17:28:01,126 | INFO    | httpx | HTTP Request: POST https://arizeai-433a7140.mintlify.app/mcp "HTTP/1.1 202 Accepted"
+2026-08-04 17:28:03,022 | ERROR   | phoenix.server.monty_runtime | Monty worker pool failed its startup check.
+Traceback (most recent call last):
+  File "c:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\.venv\Lib\site-packages\phoenix\server\monty_runtime.py", line 290, in _run
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "c:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\.venv\Lib\site-packages\phoenix\server\monty_runtime.py", line 208, in _acquire_and_feed
+    return await self._feed(
+           ^^^^^^^^^^^^^^^^^
+  File "c:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\.venv\Lib\site-packages\phoenix\server\monty_runtime.py", line 177, in _feed
+    session = await stack.enter_async_context(pool.checkout(limits=limits))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\hppro\AppData\Local\Programs\Python\Python312\Lib\contextlib.py", line 659, in enter_async_context
+    result = await _enter(cm)
+             ^^^^^^^^^^^^^^^^
+pydantic_monty.MontyCrashedError: monty worker crashed while waiting for a reply: exit code: 0xc0000135
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "c:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\.venv\Lib\site-packages\phoenix\server\monty_runtime.py", line 309, in probe_runtime
+    await probe.run(
+  File "c:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\.venv\Lib\site-packages\phoenix\server\monty_runtime.py", line 242, in run
+    return await self._run(
+           ^^^^^^^^^^^^^^^^
+  File "c:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\.venv\Lib\site-packages\phoenix\server\monty_runtime.py", line 297, in _run
+    raise MontyWorkerCrashed(exc.exit_status) from exc
+phoenix.server.monty_runtime.MontyWorkerCrashed: Monty worker terminated (exit_status=-1073741515)
+2026-08-04 17:28:03,029 | INFO    | mcp.server.streamable_http_manager | StreamableHTTP session manager started
+2026-08-04 17:28:04,274 | WARNING | phoenix.server.app | boto3 is installed but aioboto3 is not. To use AWS Bedrock models in Playground, install aioboto3: pip install aioboto3
+2026-08-04 17:28:04,441 | INFO    | mcp.server.streamable_http_manager | StreamableHTTP session manager shutting down
+2026-08-04 17:28:12,506 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-04 17:32:03,912 | INFO    | agent.tools | search_web: Yandex вернул 5 результатов
+2026-08-04 17:32:06,993 | INFO    | agent.tools | search_web: Yandex вернул 5 результатов
+2026-08-04 17:32:07,367 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"

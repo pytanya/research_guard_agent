@@ -1,0 +1,17 @@
+2026-08-03 22:42:04,271 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-03 22:42:10,558 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.schemas
+2026-08-03 22:42:10,560 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.tables
+2026-08-03 22:42:10,561 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.types
+2026-08-03 22:42:10,563 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.constraints
+2026-08-03 22:42:10,564 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.defaults
+2026-08-03 22:42:10,565 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.comments
+2026-08-03 22:42:50,646 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-03 22:43:04,851 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-03 22:43:24,824 | WARNING | agent.tools | search_web: Yandex недоступен (HTTPSConnectionPool(host='searchapi.api.cloud.yandex.net', port=443): Max retries exceeded with url: /v2/web/search (Caused by ConnectTimeoutError(<HTTPSConnection(host='searchapi.api.cloud.yandex.net', port=443) at 0x27d00764b00>, 'Connection to searchapi.api.cloud.yandex.net timed out. (connect timeout=15)'))), пробую DDGS
+2026-08-03 22:43:39,967 | INFO    | duckduckgo_search.DDGS | Error to search using bing backend: https://www.bing.com/search TimeoutError: error sending request for url (https://www.bing.com/search?q=OpenTelemetry+%D1%87%D1%82%D0%BE+%D1%8D%D1%82%D0%BE+%D1%82%D0%B0%D0%BA%D0%BE%D0%B5+%D0%BE%D0%B1%D0%B7%D0%BE%D1%80) > operation timed out
+2026-08-03 22:43:39,967 | WARNING | agent.tools | search_web: DDGS недоступен (https://www.bing.com/search TimeoutError: error sending request for url (https://www.bing.com/search?q=OpenTelemetry+%D1%87%D1%82%D0%BE+%D1%8D%D1%82%D0%BE+%D1%82%D0%B0%D0%BA%D0%BE%D0%B5+%D0%BE%D0%B1%D0%B7%D0%BE%D1%80) > operation timed out)
+2026-08-03 22:43:39,968 | WARNING | agent.tools | search_web: Tavily недоступен (TAVILY_API_KEY не настроен — Tavily недоступен)
+2026-08-03 22:44:01,102 | WARNING | agent.llm | LLM routerai [qwen/qwen3.7-flash]: попытка 1/3 не удалась (Request timed out.). Backoff 1.0с
+2026-08-03 22:44:23,172 | WARNING | agent.llm | LLM routerai [qwen/qwen3.7-flash]: попытка 2/3 не удалась (Request timed out.). Backoff 2.0с
+2026-08-03 22:44:40,631 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-03 22:44:48,833 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"

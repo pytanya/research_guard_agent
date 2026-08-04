@@ -1,0 +1,6 @@
+2026-08-04 14:46:37,449 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-04 14:47:13,649 | INFO    | agent.tools | search_web: Yandex вернул 5 результатов
+2026-08-04 14:47:16,554 | INFO    | agent.tools | search_web: Yandex вернул 5 результатов
+2026-08-04 14:47:16,712 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-04 14:47:43,310 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-04 14:48:26,399 | INFO    | agent.tools | save_note: Langfuse - открытая платформа для разработки и наблюдения за приложениями на базе LLM (большое языковое модели). Позволяет трассировать запросы, отслеживать задержки, контролировать затраты и отлажива

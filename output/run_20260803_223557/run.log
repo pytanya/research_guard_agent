@@ -1,0 +1,7 @@
+2026-08-03 22:36:01,503 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-03 22:36:09,099 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.schemas
+2026-08-03 22:36:09,101 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.tables
+2026-08-03 22:36:09,101 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.types
+2026-08-03 22:36:09,104 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.constraints
+2026-08-03 22:36:09,109 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.defaults
+2026-08-03 22:36:09,110 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.comments

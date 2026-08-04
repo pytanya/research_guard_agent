@@ -1,0 +1,18 @@
+2026-08-04 14:38:57,919 | WARNING | agent.llm | LLM routerai [qwen/qwen3.7-flash]: попытка 1/3 не удалась (Connection error.). Backoff 1.0с
+2026-08-04 14:38:58,928 | WARNING | agent.llm | LLM routerai [qwen/qwen3.7-flash]: попытка 2/3 не удалась (Connection error.). Backoff 2.0с
+2026-08-04 14:39:00,936 | ERROR   | agent.llm | Провайдер routerai, модель qwen/qwen3.7-flash не смог обработать запрос. Connection error.
+2026-08-04 14:39:00,937 | INFO    | agent.llm | Переключаюсь на fallback-провайдера...
+2026-08-04 14:39:00,950 | WARNING | agent.llm | LLM openrouter [qwen/qwen3.7-flash]: попытка 1/3 не удалась (Connection error.). Backoff 1.0с
+2026-08-04 14:39:01,966 | WARNING | agent.llm | LLM openrouter [qwen/qwen3.7-flash]: попытка 2/3 не удалась (Connection error.). Backoff 2.0с
+2026-08-04 14:39:03,971 | ERROR   | agent.llm | Провайдер openrouter, модель qwen/qwen3.7-flash не смог обработать запрос. Connection error.
+2026-08-04 14:39:03,971 | ERROR   | agent | Ошибка в цикле агента: Все провайдеры и модели недоступны: routerai/qwen/qwen3.7-flash: Connection error.; openrouter/qwen/qwen3.7-flash: Connection error.
+Traceback (most recent call last):
+  File "C:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\src\agent.py", line 312, in run
+    resp = self._call_llm(messages, tools_schema)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\src\agent.py", line 109, in _call_llm
+    resp = self.llm.chat(messages, tools=tools_schema)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\hppro\OneDrive\Документы\Guardrails_evals_observability\research_guard_agent\src\llm_client.py", line 300, in chat
+    raise RuntimeError("Все провайдеры и модели недоступны: " + "; ".join(errors))
+RuntimeError: Все провайдеры и модели недоступны: routerai/qwen/qwen3.7-flash: Connection error.; openrouter/qwen/qwen3.7-flash: Connection error.

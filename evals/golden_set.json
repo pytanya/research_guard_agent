@@ -1,0 +1,52 @@
+[
+  {
+    "question": "Кто такой Альберт Эйнштейн?",
+    "expected": ["Эйнштейн", "физик", "теория относительности", "Нобелевская"],
+    "hint": "Биография, вклад в физику"
+  },
+  {
+    "question": "Что такое Langfuse?",
+    "expected": ["Langfuse", "open source", "LLM", "observability", "трассировка"],
+    "hint": "Платформа observability для LLM-приложений"
+  },
+  {
+    "question": "Что такое OpenTelemetry?",
+    "expected": ["OpenTelemetry", "стандарт", "телеметрия", "traces", "метрики", "логи"],
+    "hint": "Открытый стандарт observability"
+  },
+  {
+    "question": "Что такое guardrails в контексте LLM-приложений?",
+    "expected": ["guardrails", "безопасность", "валидация", "prompt injection", "LLM"],
+    "hint": "Защитные механизмы для LLM-приложений"
+  },
+  {
+    "question": "Что такое prompt injection?",
+    "expected": ["prompt injection", "атака", "инструкции", "LLM", "уязвимость"],
+    "hint": "Тип атаки на LLM"
+  },
+  {
+    "question": "Что такое evals в контексте LLM?",
+    "expected": ["evals", "оценка", "бенчмарк", "LLM", "качество"],
+    "hint": "Оценка качества LLM-приложений"
+  },
+  {
+    "question": "Что такое OpenRouter?",
+    "expected": ["OpenRouter", "API", "модели", "LLM", "единый доступ"],
+    "hint": "Платформа единого доступа к LLM"
+  },
+  {
+    "question": "Что такое DuckDuckGo?",
+    "expected": ["DuckDuckGo", "поисковик", "конфиденциальность", "поиск"],
+    "hint": "Поисковая система"
+  },
+  {
+    "question": "Что такое трассировка (tracing) в observability?",
+    "expected": ["трассировка", "tracing", "spans", "запросы", "observability"],
+    "hint": "Отслеживание потока запросов"
+  },
+  {
+    "question": "Что такое Yandex Search API?",
+    "expected": ["Yandex", "Search API", "поиск", "API", "облако"],
+    "hint": "Поисковый API Яндекс Облака"
+  }
+]
