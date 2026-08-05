@@ -18,6 +18,7 @@ import json
 import logging
 import re
 import socket
+import threading
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -37,9 +38,10 @@ USER_AGENT = (
 )
 
 MAX_FETCH_CHARS = 8000
-FETCH_TIMEOUT = 15
 SEARCH_RESULTS = 5
-SEARCH_TIMEOUT = 30  # Yandex Search API отвечает медленнее 15с — увеличено
+# Таймауты настраиваются через .env (SEARCH_TIMEOUT / FETCH_TIMEOUT)
+FETCH_TIMEOUT = config.settings.FETCH_TIMEOUT
+SEARCH_TIMEOUT = config.settings.SEARCH_TIMEOUT
 
 # Поля результата инструмента в формате OpenAI function calling
 TOOLS_SCHEMA: List[Dict[str, Any]] = [
@@ -167,23 +169,40 @@ def _search_yandex(query: str) -> List[Dict[str, str]]:
 # DuckDuckGo (DDGS)
 # ----------------------------------------------------------------------
 def _search_ddgs(query: str) -> List[Dict[str, str]]:
-    """Fallback-поиск через DuckDuckGo."""
+    """Fallback-поиск через DuckDuckGo с жёстким лимитом по времени.
+
+    DDGS делает внутренние ретраи, поэтому таймаут отдельного запроса не
+    гарантирует, что весь поиск не зависнет (например, при сбое DNS). Весь
+    поиск выполняется в daemon-потоке с общим лимитом SEARCH_TIMEOUT.
+    """
     try:
         from ddgs import DDGS
     except ImportError:
         from duckduckgo_search import DDGS
 
-    with DDGS(timeout=SEARCH_TIMEOUT) as ddgs:
-        results = list(ddgs.text(query, max_results=SEARCH_RESULTS))
+    results: List[Dict[str, str]] = []
 
-    return [
-        {
-            "title": r.get("title", ""),
-            "url": r.get("href", ""),
-            "snippet": r.get("body", ""),
-        }
-        for r in results
-    ]
+    def _run() -> None:
+        with DDGS(timeout=SEARCH_TIMEOUT) as ddgs:
+            for r in ddgs.text(query, max_results=SEARCH_RESULTS):
+                results.append(
+                    {
+                        "title": r.get("title", ""),
+                        "url": r.get("href", ""),
+                        "snippet": r.get("body", ""),
+                    }
+                )
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(SEARCH_TIMEOUT)
+    if t.is_alive():
+        logger.warning(
+            "DDGS: поиск не уложился в таймаут %ss — пропускаю fallback",
+            SEARCH_TIMEOUT,
+        )
+        return []
+    return results
 
 
 # ----------------------------------------------------------------------

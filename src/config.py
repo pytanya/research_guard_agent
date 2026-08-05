@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     # поэтому ему нужен отдельный (больший) таймаут, чем REQUEST_TIMEOUT.
     ROUTERAI_TIMEOUT: float = Field(default=120.0, gt=0)
 
+    # --- Таймауты веб-поиска и загрузки страниц ---
+    SEARCH_TIMEOUT: float = Field(
+        default=30.0, gt=0, description="Таймаут веб-поиска (Yandex/DDGS/Tavily), сек"
+    )
+    FETCH_TIMEOUT: float = Field(
+        default=15.0, gt=0, description="Таймаут загрузки страницы fetch_url, сек"
+    )
+
     # --- Observability ---
     PHOENIX_ENABLED: bool = Field(default=True)
     PHOENIX_PROJECT_NAME: str = Field(default="research-guard-agent")

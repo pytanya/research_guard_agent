@@ -261,6 +261,8 @@ research_guard_agent/
 | `MAX_COST_USD` | Лимит бюджета (0.5) |
 | `REQUEST_TIMEOUT` | Таймаут LLM-запросов, сек (30) |
 | `ROUTERAI_TIMEOUT` | Таймаут для RouterAI (primary), сек (120) |
+| `SEARCH_TIMEOUT` | Таймаут веб-поиска Yandex/DDGS/Tavily, сек (30); DDGS дополнительно обрезается общим лимитом по времени |
+| `FETCH_TIMEOUT` | Таймаут загрузки страницы fetch_url, сек (15) |
 | `PHOENIX_ENABLED` | Запускать Phoenix (true) |
 | `PHOENIX_PROJECT_NAME` | Имя проекта в Phoenix (research-guard-agent) |
 | `COST_PER_1M_PROMPT` / `COST_PER_1M_COMPLETION` | Цены для расчёта стоимости, если провайдер не вернул `total_cost` |
