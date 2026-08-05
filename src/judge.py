@@ -1,5 +1,9 @@
 """
-LLM-as-judge: отдельный LLM-вызов (та же модель) для оценки ответа.
+LLM-as-judge: отдельный LLM-вызов (своя модель судьи — JUDGE_MODEL) для оценки ответа.
+
+Модель судьи настраивается отдельно от модели исследователя:
+JUDGE_MODEL (по умолчанию google/gemini-3.5-flash-lite) или per-provider
+ROUTERAI_JUDGE_MODEL / OPENROUTER_JUDGE_MODEL. Задаётся в .env / .env.example.
 
 Критерии: фактологичность по источникам, полнота, структура.
 Возвращает score 0..10 + вердикт + разбор по критериям.
@@ -106,7 +110,9 @@ class Judge:
     """Судья: оценивает ответ агента по критериям."""
 
     def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
-        self.llm = llm_client or LLMClient()
+        # Судья работает на своей модели (роль "judge", JUDGE_MODEL),
+        # а не на модели исследователя.
+        self.llm = llm_client or LLMClient(role="judge")
 
     def evaluate(
         self,
@@ -126,10 +132,19 @@ class Judge:
             dict: {score, verdict, criteria, comment, cost_usd, elapsed_sec}
         """
         src_list = sources or answer.get("sources", [])
+        # Судье отдаём ТОЛЬКО итоговый ответ, без внутренних метрик/стоп-причин:
+        # иначе судья увидит debug-данные (stop_reason, circuit_breaker и т.д.)
+        # и будет оценивать их вместо фактологического ответа.
+        answer_for_judge = {
+            "answer": answer.get("answer", ""),
+            "sources": list(src_list),
+            "confidence": answer.get("confidence", 0.0),
+            "summary": answer.get("summary", ""),
+        }
         user_prompt = f"""Вопрос: {question}
 
 Ответ агента:
-{json.dumps(answer, ensure_ascii=False, indent=2)[:6000]}
+{json.dumps(answer_for_judge, ensure_ascii=False, indent=2)[:6000]}
 
 Источники:
 {chr(10).join('- ' + s for s in src_list[:15])}

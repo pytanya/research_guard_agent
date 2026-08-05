@@ -1,0 +1,30 @@
+# --- Секреты и конфигурация ---
+.env
+!.env.example
+
+# --- Виртуальное окружение ---
+.venv/
+venv/
+env/
+
+# --- Кэш Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Результаты прогонов ---
+logs/
+output/
+evals/results_*.json
+evals/report_*.md
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+Thumbs.db
+.DS_Store

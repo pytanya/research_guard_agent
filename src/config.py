@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # --- Модель ---
     LLM_MODEL: str = Field(default="qwen/qwen3.7-flash")
     RESEARCHER_MODEL: str = Field(default="", description="Переопределение модели для исследователя")
+    # Модель LLM-as-judge (роль «судья») — отдельная от модели исследователя
+    JUDGE_MODEL: str = Field(
+        default="google/gemini-3.5-flash-lite",
+        description="Модель для роли судьи (LLM-as-judge)",
+    )
     LLM_PRIMARY_PROVIDER: str = Field(
         default="routerai",
         description="Провайдер по умолчанию: 'routerai' или 'openrouter' (остальные — fallback)",
@@ -41,6 +46,9 @@ class Settings(BaseSettings):
     # Модели для каждого провайдера (если не заданы — используется LLM_MODEL)
     ROUTERAI_MODEL: str = Field(default="", description="Модель для RouterAI (иначе LLM_MODEL)")
     OPENROUTER_MODEL: str = Field(default="", description="Модель для OpenRouter (иначе LLM_MODEL)")
+    # Модели судьи для каждого провайдера (если не заданы — используется JUDGE_MODEL)
+    ROUTERAI_JUDGE_MODEL: str = Field(default="", description="Модель судьи для RouterAI (иначе JUDGE_MODEL)")
+    OPENROUTER_JUDGE_MODEL: str = Field(default="", description="Модель судьи для OpenRouter (иначе JUDGE_MODEL)")
     # Дополнительные fallback-модели (через запятую), пробуются после основной
     FALLBACK_MODELS: str = Field(
         default="deepseek/deepseek-v4-flash-0731,qwen/qwen3.7-flash",
@@ -53,12 +61,16 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = Field(default="")
 
     # --- Лимиты агента ---
-    MAX_STEPS: int = Field(default=5, ge=1, le=50)
+    MAX_STEPS: int = Field(default=6, ge=1, le=50)
     MAX_COST_USD: float = Field(default=0.5, ge=0.0)
     REQUEST_TIMEOUT: float = Field(default=30.0, gt=0)
+    # Таймаут для RouterAI (primary) — RouterAI отвечает медленнее,
+    # поэтому ему нужен отдельный (больший) таймаут, чем REQUEST_TIMEOUT.
+    ROUTERAI_TIMEOUT: float = Field(default=120.0, gt=0)
 
     # --- Observability ---
     PHOENIX_ENABLED: bool = Field(default=True)
+    PHOENIX_PROJECT_NAME: str = Field(default="research-guard-agent")
 
     # --- Оценка стоимости (fallback, если провайдер не вернул total_cost) ---
     # OpenRouter/иные — в USD
@@ -100,16 +112,25 @@ class Settings(BaseSettings):
 
     @property
     def model(self) -> str:
-        """Активная модель: RESEARCHER_MODEL (если задан) иначе LLM_MODEL."""
+        """Активная модель исследователя: RESEARCHER_MODEL (если задан) иначе LLM_MODEL."""
         return self.RESEARCHER_MODEL or self.LLM_MODEL
+
+    @property
+    def judge_model(self) -> str:
+        """Активная модель судьи (LLM-as-judge): JUDGE_MODEL (или LLM_MODEL, если не задана)."""
+        return self.JUDGE_MODEL or self.model
 
     @property
     def providers(self) -> List[dict]:
         """Список доступных провайдеров, отсортированный по приоритету.
 
-        Primary — LLM_PRIMARY_PROVIDER (routerai по умолчанию),
-        остальные — fallback. У каждого провайдера своя модель:
-        ROUTERAI_MODEL / OPENROUTER_MODEL (иначе LLM_MODEL).
+        Primary — LLM_PRIMARY_PROVIDER (routerai по умолчанию), остальные — fallback.
+        Если primary-провайдер не настроен (нет ключа), primary становится первый
+        доступный — например, OpenRouter с аналогичными моделями (deepseek-v4-flash,
+        qwen3.7-flash и т.д.). У каждого провайдера своя модель исследователя:
+        ROUTERAI_MODEL / OPENROUTER_MODEL (иначе LLM_MODEL) и своя модель судьи:
+        ROUTERAI_JUDGE_MODEL / OPENROUTER_JUDGE_MODEL (иначе JUDGE_MODEL).
+        У RouterAI — отдельный, больший таймаут (ROUTERAI_TIMEOUT).
         """
         available = {}
         if self.ROUTERAI_API_KEY:
@@ -118,6 +139,8 @@ class Settings(BaseSettings):
                 "base_url": self.ROUTERAI_BASE_URL,
                 "api_key": self.ROUTERAI_API_KEY,
                 "model": self.ROUTERAI_MODEL or self.LLM_MODEL,
+                "judge_model": self.ROUTERAI_JUDGE_MODEL or self.JUDGE_MODEL,
+                "timeout": self.ROUTERAI_TIMEOUT,
             }
         if self.OPENROUTER_API_KEY:
             available["openrouter"] = {
@@ -125,13 +148,17 @@ class Settings(BaseSettings):
                 "base_url": self.OPENROUTER_BASE_URL,
                 "api_key": self.OPENROUTER_API_KEY,
                 "model": self.OPENROUTER_MODEL or self.LLM_MODEL,
+                "judge_model": self.OPENROUTER_JUDGE_MODEL or self.JUDGE_MODEL,
+                "timeout": None,  # иначе REQUEST_TIMEOUT
             }
 
         primary = self.LLM_PRIMARY_PROVIDER.strip().lower()
         ordered = []
         if primary in available:
             ordered.append(available.pop(primary))
-        # остальные в алфавитном порядке (стабильно)
+        # Остальные в алфавитном порядке (стабильно).
+        # Если primary (например routerai) не настроен — первый из доступных
+        # (например openrouter) становится primary автоматически.
         for name in sorted(available):
             ordered.append(available[name])
         return ordered

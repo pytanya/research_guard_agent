@@ -20,3 +20,6 @@ duckduckgo-search>=6.3.0
 # Pydantic-конфиг
 pydantic>=2.7.0
 pydantic-settings>=2.2.0
+
+# Тестирование (unit-тесты guardrails/SSRF/метрик)
+pytest>=8.0.0

@@ -3,8 +3,9 @@
 
 - Rich console для человекопонятного вывода (панели, спиннеры).
 - JSONL-лог каждого шага в logs/run_<timestamp>.jsonl
-  (timestamp, step_num, agent_action, tool, duration, status, tokens, cost).
+  (request_id, timestamp, step_num, agent_action, tool, duration, status, tokens, cost).
 - Файловый лог в output/run_<timestamp>/run.log.
+- Маскирование PII/секретов в логах (API-ключи, email, URL с ключами).
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ import datetime
 import json
 import logging
 import os
+import re
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -42,11 +45,47 @@ console = Console(theme=RICH_THEME, force_terminal=True)
 # ----------------------------------------------------------------------
 # Логгер шагов (для JSONL)
 # ----------------------------------------------------------------------
-class JsonlStepLogger:
-    """Пишет структурированные записи шагов в JSONL-файл."""
+# ----------------------------------------------------------------------
+# Маскирование PII/секретов
+# ----------------------------------------------------------------------
+# Паттерны для маскирования: API-ключи, email, URL с embedded-ключами
+_SENSITIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # API-ключи: sk-... (OpenAI-подобные), sk-or-v1-... (OpenRouter)
+    (re.compile(r'\b(sk-[a-zA-Z0-9]{20,})\b'), r'sk-***masked***'),
+    (re.compile(r'\b(sk-or-v1-[a-zA-Z0-9]{20,})\b'), r'sk-or-v1-***masked***'),
+    # API-ключи Yandex: AQVN...
+    (re.compile(r'\b(AQVN[a-zA-Z0-9_-]{10,})\b'), r'AQVN***masked***'),
+    # Email-адреса
+    (re.compile(r'\b([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b'), r'***@***.***'),
+    # URL с API-ключами (например ?key=... или &api_key=...)
+    (re.compile(r'(\?|&)(api[_-]?key|token|secret)=[^&\s]+'), r'\1\2=***masked***'),
+    # Токены в URL-путях (например /v1/.../sk-...)
+    (re.compile(r'(/[a-zA-Z0-9]+-)(sk-[a-zA-Z0-9]{20,})'), r'\1***masked***'),
+]
 
-    def __init__(self, path: Path) -> None:
+
+def mask_sensitive(value: Any) -> Any:
+    """Рекурсивно маскирует PII/секреты в строках внутри структур данных."""
+    if isinstance(value, str):
+        text = value
+        for pattern, replacement in _SENSITIVE_PATTERNS:
+            text = pattern.sub(replacement, text)
+        return text
+    if isinstance(value, dict):
+        return {k: mask_sensitive(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [mask_sensitive(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(mask_sensitive(v) for v in value)
+    return value
+
+
+class JsonlStepLogger:
+    """Пишет структурированные записи шагов в JSONL-файл (с маскированием PII)."""
+
+    def __init__(self, path: Path, request_id: Optional[str] = None) -> None:
         self.path = path
+        self.request_id = request_id
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._f = open(path, "a", encoding="utf-8")
 
@@ -63,6 +102,7 @@ class JsonlStepLogger:
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         record: Dict[str, Any] = {
+            "request_id": self.request_id,
             "timestamp": datetime.datetime.now().isoformat(timespec="milliseconds"),
             "step_num": step_num,
             "agent_action": agent_action,
@@ -73,7 +113,8 @@ class JsonlStepLogger:
             "cost": round(cost, 6) if cost is not None else None,
         }
         if extra:
-            record["extra"] = extra
+            # Маскируем PII/секреты в extra-данных (аргументы инструментов и т.д.)
+            record["extra"] = mask_sensitive(extra)
         self._f.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._f.flush()
 
@@ -95,13 +136,15 @@ def setup_logging(run_dir: Path) -> Dict[str, Any]:
         run_dir: папка прогона output/run_<timestamp>/ (создаётся при необходимости).
 
     Returns:
-        dict с {run_dir, run_log, jsonl_path, step_logger}
+        dict с {request_id, run_dir, run_log, jsonl_path, step_logger}
     """
     run_dir.mkdir(parents=True, exist_ok=True)
     logs_dir = config.settings.LOGS_DIR
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Идентификатор запроса: связывает JSONL-лог, run-папку и отчёты между собой.
+    request_id = f"req_{timestamp}_{uuid.uuid4().hex[:8]}"
 
     # 1) Файловый лог в run-папке
     run_log_path = run_dir / "run.log"
@@ -126,9 +169,10 @@ def setup_logging(run_dir: Path) -> Dict[str, Any]:
 
     # 3) JSONL-лог шагов
     jsonl_path = logs_dir / f"run_{timestamp}.jsonl"
-    step_logger = JsonlStepLogger(jsonl_path)
+    step_logger = JsonlStepLogger(jsonl_path, request_id=request_id)
 
     return {
+        "request_id": request_id,
         "run_dir": run_dir,
         "run_log": run_log_path,
         "jsonl_path": jsonl_path,

@@ -13,11 +13,14 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import logging
 import re
+import socket
 import warnings
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -278,54 +281,273 @@ def search_web(query: str) -> str:
 # ----------------------------------------------------------------------
 # Публичный инструмент: fetch_url
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Denylist для fetch_url — защита от SSRF (внутренние сети)
+# ----------------------------------------------------------------------
+_FETCH_DENYLIST_PREFIXES: Tuple[str, ...] = (
+    # loopback / localhost
+    "http://localhost",
+    "https://localhost",
+    "http://127.0.0.1",
+    "https://127.0.0.1",
+    "http://0.0.0.0",
+    "https://0.0.0.0",
+    # частные IPv4
+    "http://10.",
+    "https://10.",
+    "http://172.16.",
+    "https://172.16.",
+    "http://172.17.",
+    "https://172.17.",
+    "http://172.18.",
+    "https://172.18.",
+    "http://172.19.",
+    "https://172.19.",
+    "http://172.20.",
+    "https://172.20.",
+    "http://172.21.",
+    "https://172.21.",
+    "http://172.22.",
+    "https://172.22.",
+    "http://172.23.",
+    "https://172.23.",
+    "http://172.24.",
+    "https://172.24.",
+    "http://172.25.",
+    "https://172.25.",
+    "http://172.26.",
+    "https://172.26.",
+    "http://172.27.",
+    "https://172.27.",
+    "http://172.28.",
+    "https://172.28.",
+    "http://172.29.",
+    "https://172.29.",
+    "http://172.30.",
+    "https://172.30.",
+    "http://172.31.",
+    "https://172.31.",
+    "http://192.168.",
+    "https://192.168.",
+    # link-local
+    "http://169.254.",
+    "https://169.254.",
+    # IPv6 loopback
+    "http://[::1]",
+    "https://[::1]",
+    "http://[0:0:0:0:0:0:0:1]",
+    "https://[0:0:0:0:0:0:0:1]",
+    # metadata endpoints (AWS, GCP, Azure)
+    "http://169.254.169.254",
+    "https://169.254.169.254",
+    "http://metadata.google.internal",
+    "https://metadata.google.internal",
+)
+
+
+def _block_reason_for_ip(ip: str) -> Optional[str]:
+    """Причина блокировки IP или None, если адрес публичный."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    if (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    ):
+        return f"IP {ip} относится к внутренним/приватным сетям"
+    return None
+
+
+def _parse_numeric_host(host: str) -> Optional[str]:
+    """Нормализует числовые формы IPv4 в канонический адрес.
+
+    Обрабатывает обходы SSRF-фильтров, которые многие резолверы (в т.ч. Windows)
+    не трактуют как IP:
+      - '2130706433'      (десятичный uint32),
+      - '0x7f000001'      (hex),
+      - '127.1'           (короткая dotted-форма = 127.0.0.1),
+      - '127.0.1'         (= 127.0.0.1),
+      - '0177.0.0.1'      (octal 0177 = 127),
+      - '0x7f.0.0.1'      (hex-октеты).
+    Возвращает канонический IPv4 или None, если это не чисто числовой host.
+    """
+
+    def _val(p: str) -> int:
+        if re.fullmatch(r"0[xX][0-9a-fA-F]+", p):
+            return int(p, 16)
+        if p.isdigit():
+            if len(p) > 1 and p.startswith("0") and all(c in "01234567" for c in p):
+                return int(p, 8)  # leading zero — octal
+            return int(p)
+        raise ValueError(p)
+
+    h = host.strip().lower()
+    if not h:
+        return None
+
+    # Целиком числовая форма (одно «слово») — uint32
+    if re.fullmatch(r"(0[xX])?[0-9a-fA-F]+", h):
+        try:
+            val = _val(h)
+        except ValueError:
+            return None
+        if 0 <= val <= 0xFFFFFFFF:
+            return str(ipaddress.ip_address(val))
+        return None
+
+    # Dotted-форма (2..4 компонента)
+    parts = h.split(".")
+    if 2 <= len(parts) <= 4:
+        try:
+            vals = [_val(p) for p in parts]
+        except ValueError:
+            return None
+        if any(v > 0xFFFFFFFF for v in vals):
+            return None
+        # Последний компонент заполняет октеты справа (может быть многобайтовым),
+        # остальные — октеты слева; недостающие добиваем нулями.
+        tail = vals.pop()
+        if tail > 0xFFFFFF:
+            return None
+        tail_bytes: List[int] = [tail & 0xFF]
+        t = tail >> 8
+        while t:
+            tail_bytes.append(t & 0xFF)
+            t >>= 8
+        if len(vals) + len(tail_bytes) > 4:
+            return None
+        octets = vals + [0] * (4 - len(vals) - len(tail_bytes)) + tail_bytes[::-1]
+        return ".".join(str(o) for o in octets)
+    return None
+
+
+def _resolve_host_ips(host: str) -> List[str]:
+    """Резолв host в IP-адреса (обрабатывает 127.1, 2130706433, hex/octal и т.д.)."""
+    h = host.strip("[]")  # для IPv6 [::1]
+    try:
+        infos = socket.getaddrinfo(h, None)
+    except socket.gaierror:
+        return []
+    ips: List[str] = []
+    for info in infos:
+        addr = info[4][0]
+        if addr not in ips:
+            ips.append(addr)
+    return ips
+
+
+def is_url_blocked(url: str) -> Optional[str]:
+    """Проверяет URL по denylist. Возвращает причину блокировки или None, если OK.
+
+    Защита от SSRF в три уровня:
+    1) строковый denylist (быстрый путь, перекрывает localhost/приватные префиксы);
+    2) парсер числовых форм IPv4 (127.1, 2130706433, 0x7f000001, octal) — ловит
+       обходы, которые не резолвятся через DNS на Windows;
+    3) DNS-резолв hostname и проверка каждого IP через ipaddress
+       (перекрывает остальные случаи и IPv6).
+    """
+    url_lower = url.lower().rstrip("/")
+    for prefix in _FETCH_DENYLIST_PREFIXES:
+        if url_lower.startswith(prefix.lower()):
+            return f"URL заблокирован (внутренний/приватный адрес): {prefix}*"
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "URL не удалось распарсить"
+    host = parsed.hostname
+    if not host:
+        return "URL не содержит hostname"
+
+    # 2) Числовые/короткие формы IPv4 (не требуют DNS)
+    numeric = _parse_numeric_host(host)
+    if numeric is not None:
+        reason = _block_reason_for_ip(numeric)
+        if reason:
+            return f"URL заблокирован: {reason} (host: {host})"
+        return None  # числовой публичный адрес — разрешаем
+
+    # 3) DNS-резолв
+    for ip in _resolve_host_ips(host):
+        reason = _block_reason_for_ip(ip)
+        if reason:
+            return f"URL заблокирован: {reason} (host: {host})"
+    return None
+
+
 def fetch_url(url: str) -> Tuple[str, str]:
     """
     Безопасное получение текста страницы.
 
-    Returns:
-        (text, status): text — содержимое (обрезано до MAX_FETCH_CHARS) или сообщение
-        об ошибке; status — "OK" или "ERROR".
+    Возвращает (text, status): text — содержимое (обрезано до MAX_FETCH_CHARS)
+    или сообщение об ошибке; status — "OK" или "ERROR".
+
+    SSRF-защита: каждый URL (исходный и каждый редирект) проверяется
+    is_url_blocked() — строковый denylist + резолв IP.
     """
     url = (url or "").strip()
     if not url.startswith(("http://", "https://")):
         return "Ошибка: URL должен начинаться с http:// или https://", "ERROR"
 
+    current = url
     try:
-        resp = requests.get(
-            url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept-Language": "ru,en;q=0.8",
-                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-            },
-            timeout=FETCH_TIMEOUT,
-            allow_redirects=True,
-            stream=True,
-        )
-        resp.raise_for_status()
+        with requests.Session() as session:
+            for hop in range(6):  # максимум 5 редиректов
+                block_reason = is_url_blocked(current)
+                if block_reason:
+                    logger.warning("fetch_url: заблокирован %s — %s", current, block_reason)
+                    return block_reason, "ERROR"
 
-        # Читаем не более MAX_FETCH_CHARS * 2 байт, чтобы не качать огромные страницы
-        chunks = []
-        total = 0
-        for chunk in resp.iter_content(chunk_size=4096, decode_unicode=True):
-            chunks.append(chunk)
-            total += len(chunk)
-            if total >= MAX_FETCH_CHARS * 2:
+                resp = session.get(
+                    current,
+                    headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept-Language": "ru,en;q=0.8",
+                        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                    },
+                    timeout=FETCH_TIMEOUT,
+                    allow_redirects=False,
+                    stream=True,
+                )
+                if resp.is_redirect or resp.is_permanent_redirect:
+                    location = resp.headers.get("Location")
+                    resp.close()
+                    if not location:
+                        return "Ошибка: редирект без Location", "ERROR"
+                    current = urljoin(current, location)
+                    continue
                 break
 
-        raw = "".join(chunks)
-        # Грубое удаление HTML-тегов и лишних пробелов
-        text = re.sub(r"<script[^>]*>.*?</script>", " ", raw, flags=re.S | re.I)
-        text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.S | re.I)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
+            resp.raise_for_status()
 
-        if not text:
-            return "Страница не содержит текстового содержимого", "ERROR"
+            # Читаем не более MAX_FETCH_CHARS * 2 байт, чтобы не качать огромные страницы
+            chunks = []
+            total = 0
+            for chunk in resp.iter_content(chunk_size=4096, decode_unicode=True):
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= MAX_FETCH_CHARS * 2:
+                    break
+            resp.close()
 
-        if len(text) > MAX_FETCH_CHARS:
-            text = text[:MAX_FETCH_CHARS] + "…[обрезано]"
-        return text, "OK"
+            raw = "".join(chunks)
+            # Грубое удаление HTML-тегов и лишних пробелов
+            text = re.sub(r"<script[^>]*>.*?</script>", " ", raw, flags=re.S | re.I)
+            text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.S | re.I)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+
+            if not text:
+                return "Страница не содержит текстового содержимого", "ERROR"
+
+            if len(text) > MAX_FETCH_CHARS:
+                text = text[:MAX_FETCH_CHARS] + "…[обрезано]"
+            return text, "OK"
 
     except requests.exceptions.Timeout:
         return f"Ошибка: таймаут при загрузке {url} (>{FETCH_TIMEOUT}с)", "ERROR"

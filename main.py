@@ -39,41 +39,66 @@ from src.logging_setup import console, print_panel, setup_logging
 from src.metrics import MetricsCollector
 
 # --- Phoenix / OpenInference (этап 2, graceful degrade) ---
-_phoenix = None
+_tracer_provider = None
 
 
 def _init_phoenix(enabled: bool) -> bool:
-    """Инициализация Phoenix и OpenInference-инструментирования.
+    """Инициализация Phoenix — лёгкий режим: только отправка трейсов в коллектор.
 
-    Порядок (Phoenix SDK 19.x):
-    1. px.launch_app()  — запуск локального UI (http://localhost:6006);
-    2. register() из phoenix.otel — регистрация OTLP-экспортёра (localhost:4317)
-       и глобального TracerProvider;
-    3. OpenInferenceAutoInstrumentor().instrument() — авто-трассировка OpenAI.
+    ВНИМАНИЕ: агент НЕ поднимает собственный Phoenix-сервер (launch_app убран).
+    Ожидается, что коллектор уже запущен отдельно командой `phoenix serve`
+    (UI на http://localhost:6006, OTLP HTTP /v1/traces, gRPC :4317). Здесь только:
+
+    1. register() из phoenix.otel — регистрация OTLP-экспортёра (endpoint по умолчанию
+       http://localhost:6006/v1/traces либо из env PHOENIX_COLLECTOR_ENDPOINT, которую
+       register читает сам) и глобального TracerProvider (project_name + auto_instrument);
+    2. OpenInferenceAutoInstrumentor().instrument() — авто-трассировка OpenAI.
 
     Returns:
-        True, если Phoenix успешно запущен, иначе False (graceful degrade).
+        True, если трассировка включена, иначе False (graceful degrade).
     """
     if not enabled:
         console.print("[dim]Phoenix отключён (--no-phoenix или PHOENIX_ENABLED=false)[/dim]")
         return False
     try:
-        import phoenix as px
         from phoenix.otel import register
-        from openinference.instrumentation.openai import OpenAIInstrumentor
 
-        global _phoenix
-        _phoenix = px.launch_app()          # 1) UI на http://localhost:6006
-        register()                          # 2) OTLP-экспортёр + TracerProvider
-        OpenAIInstrumentor().instrument()   # 3) авто-трассировка OpenAI
+        global _tracer_provider
+        _tracer_provider = register(
+            project_name=config.settings.PHOENIX_PROJECT_NAME,
+            auto_instrument=True,           # сам найдёт установленные openinference-*
+        )
+        # Дополнительно явно инструментируем OpenAI (belt-and-suspenders)
+        try:
+            from openinference.instrumentation.openai import OpenAIInstrumentor
+
+            OpenAIInstrumentor().instrument()
+        except Exception:
+            pass
 
         console.print(
-            "[ok]Phoenix UI: http://localhost:6006 (трейсы LLM-вызовов и инструментов)[/ok]"
+            f"[ok]Phoenix: трейсы отправляются в коллектор http://localhost:6006 "
+            f"(проект «{config.settings.PHOENIX_PROJECT_NAME}»); UI доступен на "
+            f"http://localhost:6006, если сервер запущен (`phoenix serve`)[/ok]"
         )
         return True
     except Exception as e:
-        console.print(f"[warn]Phoenix недоступен ({e}). Работаем без трассировки.[/warn]")
+        console.print(
+            f"[warn]Phoenix недоступен ({e}). Запустите сервер отдельно: "
+            f"`phoenix serve` (UI: http://localhost:6006). Работаем без трассировки.[/warn]"
+        )
         return False
+
+
+def _shutdown_phoenix() -> None:
+    """Дослать буфер трейсов перед выходом (PHOENIX.md п.3 шаг 5)."""
+    global _tracer_provider
+    if _tracer_provider is not None:
+        try:
+            _tracer_provider.shutdown()
+        except Exception:
+            pass
+        _tracer_provider = None
 
 
 def _save_answer(run_dir: Path, result: dict) -> Path:
@@ -82,6 +107,7 @@ def _save_answer(run_dir: Path, result: dict) -> Path:
     lines = [
         "# Ответ исследовательского агента",
         "",
+        f"**request_id:** {result.get('_request_id', '')}",
         f"**Вопрос:** {result.get('_question', '')}",
         "",
         "## answer",
@@ -108,6 +134,7 @@ def _save_dz_report(run_dir: Path, result: dict, judge_res: dict) -> Path:
     lines = [
         "# Отчёт по ДЗ: ResearchGuardAgent",
         "",
+        f"- **request_id:** {result.get('_request_id', '')}",
         f"- **Вопрос:** {result.get('_question', '')}",
         f"- **Модель:** {result.get('_model', '')}",
         f"- **Провайдеры:** {result.get('_providers', '')}",
@@ -143,10 +170,13 @@ def _save_dz_report(run_dir: Path, result: dict, judge_res: dict) -> Path:
     lines.append("")
     lines.append("## LLM-as-judge")
     lines.append("")
-    lines.append(f"- **score:** {judge_res.get('score')}/10")
-    lines.append(f"- **verdict:** {judge_res.get('verdict')}")
-    lines.append(f"- **criteria:** {judge_res.get('criteria')}")
-    lines.append(f"- **comment:** {judge_res.get('comment')}")
+    if judge_res:
+        lines.append(f"- **score:** {judge_res.get('score')}/10")
+        lines.append(f"- **verdict:** {judge_res.get('verdict')}")
+        lines.append(f"- **criteria:** {judge_res.get('criteria')}")
+        lines.append(f"- **comment:** {judge_res.get('comment')}")
+    else:
+        lines.append("Judge не запускался (ответ не сформирован или агент завершился с ошибкой).")
     lines.append("")
     lines.append("## Phoenix (что видно в UI)")
     lines.append("")
@@ -211,6 +241,7 @@ def _print_report(result: dict, run_dir: Path) -> None:
         console.print(steps_table)
 
     console.print(f"\n[dim]Файлы прогона:[/dim] {run_dir}")
+    console.print(f"[dim]request_id:[/dim] {result.get('_request_id', '')}")
     console.print(f"[dim]answer.md:[/dim] {run_dir / 'answer.md'}")
 
 
@@ -239,6 +270,7 @@ def main() -> int:
     # 2) Логирование
     log_ctx = setup_logging(run_dir)
     step_logger = log_ctx["step_logger"]
+    request_id = log_ctx["request_id"]
 
     # 3) Phoenix
     phoenix_ok = _init_phoenix(enabled=(not args.no_phoenix) and config.settings.phoenix_enabled)
@@ -254,7 +286,11 @@ def main() -> int:
         max_cost_usd=args.max_cost,
     )
 
-    print_panel("ResearchGuardAgent", f"Модель: {llm.model}\nПровайдеры: {', '.join(p['name'] for p in llm.providers)}", style="info")
+    print_panel(
+        "ResearchGuardAgent",
+        f"request_id: {request_id}\nМодель: {llm.model}\nПровайдеры: {', '.join(p['name'] for p in llm.providers)}",
+        style="info",
+    )
 
     # 5) Запуск
     try:
@@ -273,6 +309,7 @@ def main() -> int:
     finally:
         step_logger.close()
 
+    result["_request_id"] = request_id
     result["_question"] = args.question
     result["_phoenix"] = phoenix_ok
     result["_model"] = llm.model
@@ -282,7 +319,8 @@ def main() -> int:
     judge_res = {}
     if result.get("success") and result.get("answer"):
         console.print("\n[info]Оценка ответа судьёй (LLM-as-judge)...[/info]")
-        judge = Judge(llm_client=llm)
+        # Судья работает на своей модели (JUDGE_MODEL), а не на модели исследователя.
+        judge = Judge()
         judge_res = judge.evaluate(args.question, result)
         console.print(
             f"  [info]Judge: {judge_res.get('score')}/10 ({judge_res.get('verdict')}) — {judge_res.get('comment','')[:100]}[/info]"
@@ -293,6 +331,9 @@ def main() -> int:
     _save_answer(run_dir, result)
     _save_dz_report(run_dir, result, judge_res)
     _print_report(result, run_dir)
+
+    # 8) Дослать буфер трейсов Phoenix (иначе часть спанов теряется)
+    _shutdown_phoenix()
 
     return 0
 

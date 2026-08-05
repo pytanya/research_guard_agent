@@ -3,13 +3,15 @@ Guardrails исследовательского агента.
 
 1. Prompt-injection фильтр на входе (эвристики).
 2. Валидация финального ответа (answer/sources/confidence).
-3. Circuit breaker: 3 ошибки подряд LLM/инструмента → fail closed.
+3. Circuit breaker: 3 ошибки подряд LLM/инструмента → fail closed,
+   с half-open cooldown (30с) для автоматического восстановления.
 4. Бюджет: MAX_COST_USD (проверка в цикле агента).
 """
 
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 # Эвристики prompt-injection (регистронезависимые)
@@ -34,8 +36,10 @@ INJECTION_PATTERNS: List[str] = [
     r"do\s+anything\s+now",
     r"act\s+as\s+an?\s+unrestricted",
     r"jailbreak",
-    r"dан\s+нou\s+new\s+instructions",
     r"new\s+instructions?\s+override",
+    r"не\s+выполняй\s+(свои|системные|предыдущие)\s+инструкции",
+    r"не\s+следуй\s+(своим|системным|предыдущим)\s+инструкциям",
+    r"удали\s+(все\s+)?предыдущие\s+инструкции",
 ]
 
 
@@ -110,42 +114,80 @@ def validate_answer(result: Dict[str, Any]) -> Dict[str, Any]:
 
 class CircuitBreaker:
     """
-    Circuit breaker: при N ошибок подряд — fail closed.
+    Circuit breaker: при N ошибок подряд — fail closed, с half-open cooldown.
 
-    - record_success(): сбрасывает счётчик.
-    - record_failure(): увеличивает счётчик; если достигнут порог — открывает цепь.
+    Состояния:
+      - closed: нормальная работа, ошибки считаются.
+      - open:  цепь разомкнута, все вызовы блокируются (fail closed).
+      - half-open: после cooldown-таймера — один пробный вызов.
+        Если успешен → closed; ошибка → open (снова).
+
+    - record_success(): сбрасывает счётчик; переводит half-open → closed.
+    - record_failure(): увеличивает счётчик; если порог достигнут → open.
     - is_open(): цепь открыта (все дальнейшие вызовы запрещены).
     """
 
-    def __init__(self, failure_threshold: int = 3) -> None:
+    def __init__(self, failure_threshold: int = 3, cooldown_seconds: float = 30.0) -> None:
         self.failure_threshold = max(1, failure_threshold)
+        self.cooldown_seconds = max(1.0, cooldown_seconds)
         self._consecutive_failures = 0
-        self.open = False
+        self._state: str = "closed"  # closed | open | half-open
+        self._last_failure_time: float = 0.0
 
     def record_success(self) -> None:
-        self._consecutive_failures = 0
+        if self._state == "half-open":
+            # Пробный вызов успешен → закрываем цепь
+            self._state = "closed"
+            self._consecutive_failures = 0
+        elif self._state == "closed":
+            self._consecutive_failures = 0
 
     def record_failure(self) -> None:
-        if self.open:
+        if self._state == "half-open":
+            # Пробный вызов не удался → снова open
+            self._state = "open"
+            self._last_failure_time = time.monotonic()
             return
+        if self._state == "open":
+            return
+        # closed
         self._consecutive_failures += 1
         if self._consecutive_failures >= self.failure_threshold:
-            self.open = True
+            self._state = "open"
+            self._last_failure_time = time.monotonic()
 
     def is_open(self) -> bool:
-        return self.open
+        """Проверяет, открыта ли цепь (с учётом half-open cooldown)."""
+        if self._state == "closed":
+            return False
+        if self._state == "open":
+            # Проверяем cooldown
+            if time.monotonic() - self._last_failure_time >= self.cooldown_seconds:
+                self._state = "half-open"
+                # half-open считается «не открытым» — пробный вызов разрешён
+                return False
+            return True
+        # half-open — не блокируем
+        return False
 
     @property
     def consecutive_failures(self) -> int:
         return self._consecutive_failures
 
+    @property
+    def state(self) -> str:
+        return self._state
+
     def reset(self) -> None:
         self._consecutive_failures = 0
-        self.open = False
+        self._state = "closed"
+        self._last_failure_time = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "open": self.open,
+            "state": self._state,
+            "open": self._state == "open",
             "consecutive_failures": self._consecutive_failures,
             "failure_threshold": self.failure_threshold,
+            "cooldown_seconds": self.cooldown_seconds,
         }

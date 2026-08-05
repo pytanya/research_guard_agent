@@ -1,6 +1,12 @@
 """
 Единый LLM-клиент исследовательского агента.
 
+Роли (роль задаётся при создании клиента):
+- researcher — основная модель исследователя (LLM_MODEL / RESEARCHER_MODEL /
+  ROUTERAI_MODEL / OPENROUTER_MODEL), с fallback по провайдерам и моделям;
+- judge — отдельная модель судьи (JUDGE_MODEL / ROUTERAI_JUDGE_MODEL /
+  OPENROUTER_JUDGE_MODEL), для LLM-as-judge.
+
 - Primary: RouterAI (по умолчанию, LLM_PRIMARY_PROVIDER), Fallback: OpenRouter и др.
 - У каждого провайдера своя модель (ROUTERAI_MODEL / OPENROUTER_MODEL / LLM_MODEL)
 - Fallback по моделям: основная → deepseek/deepseek-v4-flash-0731 → qwen/qwen3.7-flash
@@ -76,9 +82,13 @@ def _estimate_cost(usage: Dict[str, int], provider: str = "", model: str = "") -
 class LLMClient:
     """Обёртка над OpenAI-совместимым API с retry и fallback между провайдерами."""
 
-    def __init__(self, settings: Optional[config.Settings] = None):
+    def __init__(self, settings: Optional[config.Settings] = None, role: str = "researcher"):
         self.settings = settings or config.settings
-        self.model = self.settings.model
+        self.role = role
+        if role == "judge":
+            self.model = self.settings.judge_model
+        else:
+            self.model = self.settings.model
         self.timeout = self.settings.REQUEST_TIMEOUT
         self.providers = self.settings.providers
 
@@ -91,10 +101,13 @@ class LLMClient:
         self._clients: Dict[str, openai.OpenAI] = {}
         for p in self.providers:
             try:
+                # У RouterAI (primary) — отдельный увеличенный таймаут,
+                # у остальных — общий REQUEST_TIMEOUT.
+                client_timeout = p.get("timeout") or self.timeout
                 self._clients[p["name"]] = openai.OpenAI(
                     base_url=p["base_url"],
                     api_key=p["api_key"],
-                    timeout=self.timeout,
+                    timeout=client_timeout,
                     max_retries=0,  # retry реализуем сами
                 )
             except Exception as e:  # pragma: no cover
@@ -267,11 +280,16 @@ class LLMClient:
         errors: List[str] = []
 
         for idx, provider in enumerate(providers):
-            # Модели для этого провайдера: его модель первой, затем общие fallback
-            provider_model = provider.get("model") or self.settings.model
-            models = [provider_model] + [
-                m for m in fallback_models if m != provider_model
-            ]
+            if self.role == "judge":
+                # Судья: только его модель (без общих fallback-моделей исследователя)
+                provider_model = provider.get("judge_model") or self.settings.judge_model
+                models = [provider_model]
+            else:
+                # Модели для этого провайдера: его модель первой, затем общие fallback
+                provider_model = provider.get("model") or self.settings.model
+                models = [provider_model] + [
+                    m for m in fallback_models if m != provider_model
+                ]
 
             for model in models:
                 try:
