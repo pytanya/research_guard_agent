@@ -13,6 +13,7 @@ import argparse
 import datetime
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -42,6 +43,27 @@ from src.metrics import MetricsCollector
 _tracer_provider = None
 
 
+def _collector_reachable(timeout: float = 2.0) -> bool:
+    """Проверяем, что коллектор Phoenix реально доступен (TCP-проба на OTLP-порт).
+
+    register() из phoenix.otel не проверяет связь и создаёт экспортёр даже при
+    выключенном коллекторе — тогда ошибки экспорта сыплются уже во время прогона.
+    Здесь пробуем порт заранее, чтобы тихо деградировать до режима без трассировки.
+    """
+    endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "").strip()
+    if not endpoint:
+        host, port = "localhost", 4317
+    else:
+        host_port = endpoint.split("://", 1)[-1].split("/", 1)[0]
+        host, _, port_s = host_port.partition(":")
+        port = int(port_s) if port_s else 6006
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def _init_phoenix(enabled: bool) -> bool:
     """Инициализация Phoenix — лёгкий режим: только отправка трейсов в коллектор.
 
@@ -49,16 +71,24 @@ def _init_phoenix(enabled: bool) -> bool:
     Ожидается, что коллектор уже запущен отдельно командой `phoenix serve`
     (UI на http://localhost:6006, OTLP HTTP /v1/traces, gRPC :4317). Здесь только:
 
-    1. register() из phoenix.otel — регистрация OTLP-экспортёра (endpoint по умолчанию
-       http://localhost:6006/v1/traces либо из env PHOENIX_COLLECTOR_ENDPOINT, которую
-       register читает сам) и глобального TracerProvider (project_name + auto_instrument);
-    2. OpenInferenceAutoInstrumentor().instrument() — авто-трассировка OpenAI.
+    1. Проверка доступности коллектора (иначе — graceful degrade без трассировки);
+    2. register() из phoenix.otel — регистрация OTLP-экспортёра (endpoint по умолчанию
+       gRPC localhost:4317 либо из env PHOENIX_COLLECTOR_ENDPOINT, которую register
+       читает сам) и глобального TracerProvider (project_name + auto_instrument);
+    3. OpenInferenceAutoInstrumentor().instrument() — авто-трассировка OpenAI.
 
     Returns:
         True, если трассировка включена, иначе False (graceful degrade).
     """
     if not enabled:
         console.print("[dim]Phoenix отключён (--no-phoenix или PHOENIX_ENABLED=false)[/dim]")
+        return False
+    if not _collector_reachable():
+        console.print(
+            "[warn]Phoenix: коллектор недоступен (OTLP :4317) — `phoenix serve` не "
+            "запущен. Работаем без трассировки. Для включения запустите `phoenix serve` "
+            "(UI: http://localhost:6006).[/warn]"
+        )
         return False
     try:
         from phoenix.otel import register
