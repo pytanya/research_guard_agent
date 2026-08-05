@@ -14,8 +14,8 @@ openinference-instrumentation-openai>=0.1.0
 # greenlet 3.1.1 — работает на Python 3.12 (3.5.4 ломается на Windows: DLL load failed)
 greenlet==3.1.1
 
-# Поиск (fallback DuckDuckGo)
-duckduckgo-search>=6.3.0
+# Поиск (fallback DuckDuckGo); пакет переименован duckduckgo-search -> ddgs
+ddgs>=9.14.4
 
 # Pydantic-конфиг
 pydantic>=2.7.0
