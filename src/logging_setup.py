@@ -167,6 +167,13 @@ def setup_logging(run_dir: Path) -> Dict[str, Any]:
     root.addHandler(file_handler)
     root.addHandler(stream_handler)
 
+    # DDGS перебирает десятки движков и на INFO логирует каждый сбой (сеть
+    # у нас капризная — это десятки строк спама на один поиск). Глушим до WARNING;
+    # для отладки сети уровень можно вернуть на INFO.
+    logging.getLogger("ddgs").setLevel(logging.WARNING)
+    # primp — HTTP-клиент ddgs, тоже пишет каждый ответ на INFO.
+    logging.getLogger("primp").setLevel(logging.WARNING)
+
     # 3) JSONL-лог шагов
     jsonl_path = logs_dir / f"run_{timestamp}.jsonl"
     step_logger = JsonlStepLogger(jsonl_path, request_id=request_id)

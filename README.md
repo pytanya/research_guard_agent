@@ -52,9 +52,9 @@
                  ┌──────────┐   ┌──────────┐    ┌──────────┐
                  │ search_  │   │ fetch_   │    │ save_    │
                  │ web      │   │ url      │    │ note     │
-                 │ (Yandex/ │   │ (SSRF-   │    │ (лог)    │
-                 │ DDG/     │   │ защита)  │    │          │
-                 │ Tavily)  │   └──────────┘    └──────────┘
+                 │ (SEARCH_ │   │ (SSRF-   │    │ (лог)    │
+                 │ PRIMARY  │   │ защита)  │    │          │
+                 │ →DDGS)   │   └──────────┘    └──────────┘
                  └──────────┘
 
    LLM: RouterAI (primary) ──► OpenRouter (fallback)      судья: Judge
@@ -73,7 +73,7 @@
 | Блок | Что делает |
 |---|---|
 | LLM | OpenAI-совместимый SDK, **RouterAI** (primary, `LLM_PRIMARY_PROVIDER=routerai`) + **OpenRouter** (fallback) с аналогичными моделями (deepseek-v4-flash, qwen3.7-flash), у RouterAI — отдельный увеличенный таймаут `ROUTERAI_TIMEOUT`; отдельная модель судьи `JUDGE_MODEL` (google/gemini-3.5-flash-lite); retry с backoff (3 попытки: 1→2→4с), обработка 429/5xx/таймаутов |
-| Поиск | **Yandex Search API v2** → fallback **DuckDuckGo (DDGS)** → fallback **Tavily** (только если ключ задан) |
+| Поиск | По приоритету `SEARCH_PRIMARY` (`yandex`/`tavily`, работают только настроенные движки — есть ключ); **DDGS** — всегда универсальный fallback. Таймауты `SEARCH_TIMEOUT`/`FETCH_TIMEOUT` |
 | Инструменты | `search_web`, `fetch_url` (таймаут 15с, лимит 8000 символов), `save_note` |
 | Метрики | `success`, `elapsed_sec`, `total_cost_usd`, `num_steps`, per-step метрики (инструмент, длительность, статус) |
 | Логирование | Rich-консоль + JSONL-лог шагов в `logs/run_<timestamp>.jsonl` + `output/run_<timestamp>/run.log` |
@@ -95,7 +95,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 3) конфигурация
-copy .env.example .env   # и заполните ключи (или скопируйте готовый .env из соседнего проекта)
+copy .env.example .env   # и заполните ключи
 ```
 
 ## Запуск
@@ -111,7 +111,7 @@ python main.py "вопрос" --no-phoenix
 | Аргумент | Назначение | Default |
 |---|---|---|
 | `question` (позиционный) | Вопрос для исследования | — |
-| `--max-steps N` | Максимум итераций цикла | `MAX_STEPS` (5) |
+| `--max-steps N` | Максимум итераций цикла | `MAX_STEPS` (6) |
 | `--max-cost USD` | Максимальный бюджет прогона | `MAX_COST_USD` (0.5) |
 | `--no-phoenix` | Отключить запуск Phoenix | `PHOENIX_ENABLED` |
 
@@ -144,6 +144,9 @@ JSONL-лог шагов: `logs/run_<timestamp>.jsonl`.
 
 ```bash
 # 1) стартуем коллектор (фоновый процесс, UI на http://localhost:6006)
+#    Windows (cmd):   serve_phoenix.bat
+#    Windows (PS):    .\serve_phoenix.ps1
+#    либо вручную:
 set PHOENIX_ENABLE_MCP_SERVER=false
 set PHOENIX_ALLOWED_SANDBOX_PROVIDERS=NONE
 set PHOENIX_ALLOW_EXTERNAL_RESOURCES=false
@@ -154,11 +157,13 @@ python main.py "Что такое OpenTelemetry?"   # без --no-phoenix
 # откройте http://localhost:6006 — трейсы LLM-вызовов и инструментов
 ```
 
-Перечисленные env-переменные отключают на этом Windows-хосте неиспользуемые фичи
-Phoenix 19.x, которые иначе замедляют/роняют старт: docs MCP-сервер (лезет в сеть),
-code sandbox (Monty worker падает с `0xc0000135` — отсутствующая DLL) и внешние
-ресурсы. БД коллектора постоянная — `~/.phoenix/phoenix.db`, повторные старты
-быстрые (миграции выполняются один раз, ~12 c при первом запуске).
+Скрипты `serve_phoenix.bat` / `serve_phoenix.ps1` выставляют перечисленные
+env-переменные автоматически. Они отключают на этом Windows-хосте неиспользуемые
+фичи Phoenix 19.x, которые иначе замедляют/роняют/шумят старт: docs MCP-сервер
+(лезет в сеть, ошибки SSL/DNS), code sandbox (Monty worker падает с `0xc0000135`
+— отсутствующая DLL, WASM-бинарник не скачивается из-за блокировки github.com)
+и внешние ресурсы. БД коллектора постоянная — `~/.phoenix/phoenix.db`, повторные
+старты быстрые (миграции выполняются один раз, ~12 c при первом запуске).
 
 Если Phoenix не установлен или упал — агент продолжит работу без трассировки (graceful degrade).
 
@@ -178,6 +183,13 @@ python eval_golden.py                          # прогон по golden set (1
 python eval_golden.py --runs 3                 # стабильность по 3 прогонам
 python eval_golden.py --limit 2 --no-phoenix   # быстрый прогон без Phoenix
 ```
+
+**Golden set** хранится в отдельном файле `evals/golden_set.json` и загружается
+`eval_golden.py` из него (не зашит в код) — формат: список объектов
+`{"question": "...", "expected": ["ключ1", "ключ2"], "hint": "..."}`, где
+`expected` — ключевые сущности, по которым считается pass@1 (ответ должен
+содержать их все). Вопросы можно свободно добавлять/редактировать в этом файле;
+`--limit N` берёт первые N вопросов.
 
 Результаты: `evals/results_eval_<timestamp>.json` и `evals/report_<timestamp>.md`.
 
@@ -203,25 +215,34 @@ python -m pytest tests/ -v
 
 ```
 research_guard_agent/
-├── .env / .env.example
+├── .env.example             # шаблон окружения (сам .env не пушится)
+├── .gitignore
 ├── requirements.txt
 ├── README.md
-├── main.py                  # CLI
+├── main.py                  # CLI: прогон агента + инициализация Phoenix
 ├── eval_golden.py           # прогон по golden set (+ --runs для стабильности)
+├── serve_phoenix.bat / .ps1 # запуск коллектора Phoenix (Windows, с флагами)
 ├── examples/                # пример запроса и результата (example_run.md)
 ├── src/
-│   ├── config.py            # pydantic Settings
+│   ├── __init__.py
+│   ├── config.py            # pydantic Settings (env, лимиты, провайдеры, поиск)
 │   ├── llm_client.py        # RouterAI (primary) + OpenRouter (fallback), retry, cost
 │   ├── tools.py             # search_web / fetch_url (SSRF-safe) / save_note
 │   ├── agent.py             # цикл Reason → Act → Observe
+│   ├── guardrails.py        # injection-детектор, валидация ответа, circuit breaker
+│   ├── judge.py             # LLM-as-judge (score/verdict/comment)
 │   ├── metrics.py           # MetricsCollector
-│   ├── logging_setup.py     # rich + JSONL + run.log
-│   └── (этап 2) guardrails.py, judge.py
-├── tests/                   # unit-тесты guardrails/SSRF/метрик/judge
-├── evals/                   # golden set + результаты eval
-├── logs/                    # JSONL-логи шагов
-└── output/                  # run-папки с answer.md и отчётами
+│   └── logging_setup.py     # rich + JSONL + run.log
+├── tests/                   # unit-тесты (agent/guardrails/SSRF/метрики/judge)
+└── evals/
+    └── golden_set.json      # golden set: вопросы + ожидаемые сущности
 ```
+
+Что **не** попадает в репозиторий (`.gitignore`): `.env` (секреты), `.venv/`,
+`logs/`, `output/`, `evals/results_*.json`, `evals/report_*.md`, `__pycache__/`,
+`.pytest_cache/`, `tmp/` и `research_guard_agent/` — локальное хранилище
+коллектора Phoenix (`.phoenix_local`, трейсы). Для демонстрации пушить нужно
+только перечисленное выше дерево + `README.md`.
 
 ## Безопасность (guardrails)
 
@@ -250,13 +271,17 @@ research_guard_agent/
 
 | Переменная | Назначение |
 |---|---|
-| `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | Primary LLM-провайдер |
-| `ROUTERAI_API_KEY` / `ROUTERAI_BASE_URL` | Fallback LLM-провайдер |
+| `ROUTERAI_API_KEY` / `ROUTERAI_BASE_URL` | Primary LLM-провайдер (по умолчанию `LLM_PRIMARY_PROVIDER=routerai`) |
+| `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | Fallback LLM-провайдер |
 | `LLM_MODEL` / `RESEARCHER_MODEL` | Модель исследователя (роль «исследователь») |
 | `JUDGE_MODEL` | Модель судьи LLM-as-judge (роль «судья»), по умолчанию google/gemini-3.5-flash-lite |
+| `LLM_PRIMARY_PROVIDER` | Провайдер по умолчанию: `routerai`/`openrouter` (остальные — fallback) |
 | `ROUTERAI_JUDGE_MODEL` / `OPENROUTER_JUDGE_MODEL` | Модель судьи для конкретного провайдера |
+| `ROUTERAI_MODEL` / `OPENROUTER_MODEL` | Модель исследователя для конкретного провайдера (иначе `LLM_MODEL`) |
+| `FALLBACK_MODELS` | Дополнительные fallback-модели через запятую (после основной) |
 | `YANDEX_API_KEY` / `YANDEX_FOLDER_ID` | Yandex Search API |
 | `TAVILY_API_KEY` | Tavily (опциональный fallback поиска) |
+| `SEARCH_PRIMARY` | Поисковик по умолчанию (`yandex`/`tavily`); DDGS — всегда универсальный fallback |
 | `MAX_STEPS` | Лимит шагов (6) |
 | `MAX_COST_USD` | Лимит бюджета (0.5) |
 | `REQUEST_TIMEOUT` | Таймаут LLM-запросов, сек (30) |

@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     YANDEX_API_KEY: str = Field(default="")
     YANDEX_FOLDER_ID: str = Field(default="")
     TAVILY_API_KEY: str = Field(default="")
+    SEARCH_PRIMARY: str = Field(
+        default="yandex",
+        description="Поисковик по умолчанию: 'yandex' или 'tavily' (DDGS — всегда fallback)",
+    )
 
     # --- Лимиты агента ---
     MAX_STEPS: int = Field(default=6, ge=1, le=50)
@@ -169,6 +173,35 @@ class Settings(BaseSettings):
         # (например openrouter) становится primary автоматически.
         for name in sorted(available):
             ordered.append(available[name])
+        return ordered
+
+    @property
+    def search_engines(self) -> List[str]:
+        """Список поисковиков по приоритету (по аналогии с providers).
+
+        Primary — SEARCH_PRIMARY (yandex по умолчанию). Доступны только
+        настроенные движки: yandex (нужны YANDEX_API_KEY + YANDEX_FOLDER_ID),
+        tavily (нужен TAVILY_API_KEY). Если primary не настроен — primary
+        становится первый доступный. DDGS (duckduckgo) всегда в конце — ключей
+        не требует, поэтому служит универсальным fallback.
+        """
+        available = []
+        if self.YANDEX_API_KEY and self.YANDEX_FOLDER_ID:
+            available.append("yandex")
+        if self.TAVILY_API_KEY:
+            available.append("tavily")
+
+        primary = self.SEARCH_PRIMARY.strip().lower()
+        ordered = []
+        if primary in available:
+            ordered.append(primary)
+        # Остальные в алфавитном порядке (стабильно)
+        for name in sorted(available):
+            if name not in ordered:
+                ordered.append(name)
+        # DDGS — всегда универсальный fallback (без ключей)
+        if "ddgs" not in ordered:
+            ordered.append("ddgs")
         return ordered
 
     @property

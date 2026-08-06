@@ -19,6 +19,13 @@ output/
 evals/results_*.json
 evals/report_*.md
 
+# --- Локальные данные Phoenix (хранилище коллектора) ---
+research_guard_agent/
+.phoenix_local/
+
+# --- Черновики / заметки ---
+tmp/
+
 # --- IDE ---
 .vscode/
 .idea/
@@ -28,3 +35,7 @@ evals/report_*.md
 # --- OS ---
 Thumbs.db
 .DS_Store
+
+# --- Кэш pytest ---
+.pytest_cache/
+

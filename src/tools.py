@@ -1,8 +1,8 @@
 """
 Инструменты исследовательского агента.
 
-- search_web(query) -> list[str]: Yandex Search API v2 → fallback DDGS (DuckDuckGo)
-  → fallback Tavily (только если ключ задан).
+- search_web(query) -> list[str]: поиск по порядку SEARCH_PRIMARY (yandex/tavily,
+  только настроенные) → DDGS (DuckDuckGo, всегда универсальный fallback).
 - fetch_url(url) -> (text|error, status): безопасное получение текста страницы.
 - save_note(note) -> str: сохранение заметки во время исследования.
 
@@ -42,6 +42,9 @@ SEARCH_RESULTS = 5
 # Таймауты настраиваются через .env (SEARCH_TIMEOUT / FETCH_TIMEOUT)
 FETCH_TIMEOUT = config.settings.FETCH_TIMEOUT
 SEARCH_TIMEOUT = config.settings.SEARCH_TIMEOUT
+# Таймаут установления соединения: если хост недоступен (DNS/сеть), не ждём
+# SEARCH_TIMEOUT, а отваливаемся быстро; чтение ответа — полный SEARCH_TIMEOUT.
+SEARCH_CONNECT_TIMEOUT = 10.0
 
 # Поля результата инструмента в формате OpenAI function calling
 TOOLS_SCHEMA: List[Dict[str, Any]] = [
@@ -135,7 +138,12 @@ def _search_yandex(query: str) -> List[Dict[str, str]]:
         "folderId": config.settings.YANDEX_FOLDER_ID,
         "responseFormat": "FORMAT_XML",
     }
-    resp = requests.post(url, json=payload, headers=headers, timeout=SEARCH_TIMEOUT)
+    resp = requests.post(
+        url,
+        json=payload,
+        headers=headers,
+        timeout=(SEARCH_CONNECT_TIMEOUT, SEARCH_TIMEOUT),
+    )
     resp.raise_for_status()
     data = resp.json()
 
@@ -224,7 +232,7 @@ def _search_tavily(query: str) -> List[Dict[str, str]]:
             "include_raw_content": False,
         },
         headers={"Content-Type": "application/json"},
-        timeout=SEARCH_TIMEOUT,
+        timeout=(SEARCH_CONNECT_TIMEOUT, SEARCH_TIMEOUT),
     )
     resp.raise_for_status()
     data = resp.json()
@@ -246,7 +254,9 @@ def _search_tavily(query: str) -> List[Dict[str, str]]:
 # ----------------------------------------------------------------------
 def search_web(query: str) -> str:
     """
-    Поиск в вебе. Порядок: Yandex → DDGS → Tavily.
+    Поиск в вебе. Порядок задаётся SEARCH_PRIMARY (config.search_engines):
+    yandex → tavily → DDGS (DDGS — всегда универсальный fallback).
+    Используются только настроенные движки (есть ключи).
 
     Returns:
         JSON-строка вида {"ok": true, "results": [...]} или
@@ -260,36 +270,19 @@ def search_web(query: str) -> str:
 
     errors: List[str] = []
 
-    # 1) Yandex
-    try:
-        results = _search_yandex(query)
-        logger.info("search_web: Yandex вернул %d результатов", len(results))
-        return json.dumps({"ok": True, "engine": "yandex", "results": results}, ensure_ascii=False)
-    except Exception as e:
-        errors.append(f"yandex: {e}")
-        logger.warning("search_web: Yandex недоступен (%s), пробую DDGS", e)
-
-    # 2) DuckDuckGo
-    try:
-        results = _search_ddgs(query)
-        if results:
-            logger.info("search_web: DDGS вернул %d результатов", len(results))
-            return json.dumps({"ok": True, "engine": "ddgs", "results": results}, ensure_ascii=False)
-        errors.append("ddgs: пустой результат")
-    except Exception as e:
-        errors.append(f"ddgs: {e}")
-        logger.warning("search_web: DDGS недоступен (%s)", e)
-
-    # 3) Tavily (только если ключ задан)
-    try:
-        results = _search_tavily(query)
-        if results:
-            logger.info("search_web: Tavily вернул %d результатов", len(results))
-            return json.dumps({"ok": True, "engine": "tavily", "results": results}, ensure_ascii=False)
-        errors.append("tavily: пустой результат")
-    except Exception as e:
-        errors.append(f"tavily: {e}")
-        logger.warning("search_web: Tavily недоступен (%s)", e)
+    engines = {"yandex": _search_yandex, "tavily": _search_tavily, "ddgs": _search_ddgs}
+    for engine in config.settings.search_engines:
+        try:
+            results = engines[engine](query)
+            if results:
+                logger.info("search_web: %s вернул %d результатов", engine, len(results))
+                return json.dumps(
+                    {"ok": True, "engine": engine, "results": results}, ensure_ascii=False
+                )
+            errors.append(f"{engine}: пустой результат")
+        except Exception as e:
+            errors.append(f"{engine}: {e}")
+            logger.warning("search_web: %s недоступен (%s), пробую следующий", engine, e)
 
     return json.dumps(
         {"ok": False, "error": "Все поисковые движки недоступны: " + "; ".join(errors)},
