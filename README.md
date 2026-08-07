@@ -31,41 +31,40 @@
 
 ## Схема архитектуры
 
-```
-                ┌──────────────────────────────────────────────────────────┐
-   вопрос ─────►│                       main.py (CLI)                       │
-                │  run_dir + request_id → логирование → отчёты             │
-                └───────────────┬──────────────────────────────────────────┘
-                                ▼
-                ┌──────────────────────────────────────────────────────────┐
-                │                     ResearchAgent                         │
-                │                цикл Reason → Act → Observe                │
-                │   ┌────────────┐   ┌────────────┐   ┌──────────────┐      │
-                │   │  Reason    │──►│    Act     │──►│   Observe    │      │
-                │   │ (LLM)      │   │ (LLM+FC)   │   │ (инструменты)│      │
-                │   └────────────┘   └────────────┘   └──────────────┘      │
-                │         ▲                                   │             │
-                │         └───────────────────────────────────┘             │
-                └───────┬──────────────┬───────────────┬────────────────────┘
-                        │              │               │
-                        ▼              ▼               ▼
-                 ┌──────────┐   ┌──────────┐    ┌──────────┐
-                 │ search_  │   │ fetch_   │    │ save_    │
-                 │ web      │   │ url      │    │ note     │
-                 │ (SEARCH_ │   │ (SSRF-   │    │ (лог)    │
-                 │ PRIMARY  │   │ защита)  │    │          │
-                 │ →DDGS)   │   └──────────┘    └──────────┘
-                 └──────────┘
+```mermaid
+flowchart TD
+    Q["вопрос"] --> MAIN["main.py (CLI)<br/>run_dir + request_id → логирование → отчёты"]
+    MAIN -->|запуск| AGENT["ResearchAgent<br/>цикл Reason → Act → Observe"]
+    MAIN -->|трейсы OTLP| PHX["Phoenix collector<br/>UI :6006 · gRPC :4317"]
 
-   LLM: RouterAI (primary) ──► OpenRouter (fallback)      судья: Judge
-        researcher: qwen3.7-flash  (role="researcher")      LLMClient(role="judge")
-        JUDGE_MODEL: gemini-3.5-flash-lite                  google/gemini-3.5-flash-lite
+    subgraph LOOP["цикл агента"]
+        direction LR
+        R["Reason<br/>(LLM researcher)"]
+        A["Act<br/>(LLM + function calling)"]
+        O["Observe<br/>(инструменты)"]
+        R --> A --> O --> R
+    end
+    AGENT --> LOOP
 
-   Защита (guardrails): injection-фильтр → валидация ответа → circuit breaker
-   → бюджет (MAX_COST_USD) → лимит шагов (MAX_STEPS) → SSRF → маскирование PII
+    A --> SEARCH["search_web<br/>SEARCH_PRIMARY → DDGS"]
+    A --> FETCH["fetch_url<br/>SSRF-защита"]
+    A --> NOTE["save_note"]
+    SEARCH --> O
+    FETCH --> O
+    NOTE --> O
 
-   Наблюдаемость: JSONL-лог шагов (request_id) · run.log · метрики
-   · Phoenix/OpenInference (UI :6006) · LLM-as-judge verdict
+    subgraph LLM["LLM-провайдеры"]
+        L1["RouterAI (primary)<br/>qwen3.7-flash"]
+        L2["OpenRouter (fallback)<br/>qwen3.7-flash / deepseek-v4-flash"]
+        L1 -->|недоступен| L2
+    end
+    R -->|prompt| L1
+
+    JUDGE["Judge — LLM-as-judge<br/>google/gemini-3.5-flash-lite<br/>role=judge"] -->|score / verdict| MAIN
+
+    GR["Guardrails: injection-фильтр → валидация ответа → circuit breaker<br/>→ бюджет MAX_COST_USD → лимит шагов MAX_STEPS → SSRF → PII-маскирование"] -.-> AGENT
+
+    OBS["Наблюдаемость: JSONL-лог (request_id) · run.log · метрики · LLM-as-judge"] -.-> MAIN
 ```
 
 ## Возможности
@@ -128,7 +127,17 @@ JSONL-лог шагов: `logs/run_<timestamp>.jsonl`.
 
 Каждый прогон получает **`request_id`** (формат `req_<timestamp>_<hex>`) — он проставляется в каждую запись JSONL-лога и в шапки `answer.md`/`dz_report.md`, что позволяет связывать логи, отчёт и папку прогона между собой.
 
-## SOP (стандартная операционная процедура)
+## SOP агента (промпт)
+
+Правила работы агента — планирование → поиск → проверка фактов → финальный JSON —
+**зашиты в system-промпт** `SYSTEM_PROMPT` (`src/agent.py:28`) и передаются модели
+при каждом запуске как `{"role": "system", "content": SYSTEM_PROMPT}`
+(`src/agent.py:321`). Дополнительно модель получает описания инструментов
+(`TOOLS_SCHEMA` в `src/tools.py`): в них задано, *когда и как* вызывать каждый
+инструмент. Модель сама решает, какой инструмент использовать и когда завершить
+цикл. Ниже — runbook для человека: как запускать проект и проверять качество.
+
+### Проверка и контроль качества (runbook)
 
 1. **Подготовка**: создать `.env` из `.env.example` (ключи провайдеров, `RESEARCHER_MODEL`, `JUDGE_MODEL`, бюджеты `MAX_STEPS`/`MAX_COST_USD`).
 2. **Единичный прогон**: `python main.py "вопрос"` → проверить в `output/run_<timestamp>/answer.md`, что `success: True`, `stop_reason: completed`, `confidence` и список `sources` не пустые.
@@ -146,10 +155,14 @@ JSONL-лог шагов: `logs/run_<timestamp>.jsonl`.
 # 1) стартуем коллектор (фоновый процесс, UI на http://localhost:6006)
 #    Windows (cmd):   serve_phoenix.bat
 #    Windows (PS):    .\serve_phoenix.ps1
-#    либо вручную:
-set PHOENIX_ENABLE_MCP_SERVER=false
-set PHOENIX_ALLOWED_SANDBOX_PROVIDERS=NONE
-set PHOENIX_ALLOW_EXTERNAL_RESOURCES=false
+#    macOS/Linux:     ./serve_phoenix.sh
+#    либо вручную (3 переменные + phoenix serve):
+#      Windows:       set PHOENIX_ENABLE_MCP_SERVER=false ^
+#                     set PHOENIX_ALLOWED_SANDBOX_PROVIDERS=NONE ^
+#                     set PHOENIX_ALLOW_EXTERNAL_RESOURCES=false
+#      macOS/Linux:   export PHOENIX_ENABLE_MCP_SERVER=false \
+#                     PHOENIX_ALLOWED_SANDBOX_PROVIDERS=NONE \
+#                     PHOENIX_ALLOW_EXTERNAL_RESOURCES=false
 phoenix serve
 
 # 2) в другом терминале запускаем агента
@@ -157,13 +170,14 @@ python main.py "Что такое OpenTelemetry?"   # без --no-phoenix
 # откройте http://localhost:6006 — трейсы LLM-вызовов и инструментов
 ```
 
-Скрипты `serve_phoenix.bat` / `serve_phoenix.ps1` выставляют перечисленные
-env-переменные автоматически. Они отключают на этом Windows-хосте неиспользуемые
+Скрипты `serve_phoenix.bat` / `serve_phoenix.ps1` / `serve_phoenix.sh` выставляют
+перечисленные env-переменные автоматически. Они отключают на хосте неиспользуемые
 фичи Phoenix 19.x, которые иначе замедляют/роняют/шумят старт: docs MCP-сервер
-(лезет в сеть, ошибки SSL/DNS), code sandbox (Monty worker падает с `0xc0000135`
-— отсутствующая DLL, WASM-бинарник не скачивается из-за блокировки github.com)
-и внешние ресурсы. БД коллектора постоянная — `~/.phoenix/phoenix.db`, повторные
-старты быстрые (миграции выполняются один раз, ~12 c при первом запуске).
+(лезет в сеть, ошибки SSL/DNS), code sandbox (на Windows Monty worker падает с
+`0xc0000135` — отсутствующая DLL; WASM-бинарник не скачивается из-за ошибки
+верификации SSL-сертификата в Python) и внешние ресурсы. БД коллектора
+постоянная — `~/.phoenix/phoenix.db`, повторные старты быстрые (миграции
+выполняются один раз, ~12 c при первом запуске).
 
 Если Phoenix не установлен или упал — агент продолжит работу без трассировки (graceful degrade).
 
@@ -172,9 +186,10 @@ env-переменные автоматически. Они отключают �
 > `requirements.txt` зафиксирована рабочая `greenlet==3.1.1`. Встроенный сервер через
 > `launch_app()` на этой машине не поднимается (`RuntimeError: server took too long to start`):
 > свежая временная БД мигрируется ~12 c при жёстком лимите 5 c плюс попытки скачать
-> WASM-бинарник песочницы с github.com (сеть заблокирована). Поэтому и используется
-> внешний `phoenix serve` с постоянной БД. При недоступности UI агент работает без
-> трассировки (graceful degrade) — метрики и JSONL-логи шагов сохраняются всегда.
+> WASM-бинарник песочницы с github.com (падает с ошибкой верификации SSL-сертификата
+> в Python). Поэтому и используется внешний `phoenix serve` с постоянной БД. При
+> недоступности UI агент работает без трассировки (graceful degrade) — метрики и
+> JSONL-логи шагов сохраняются всегда.
 
 ## Evals (этап 2)
 
@@ -221,7 +236,7 @@ research_guard_agent/
 ├── README.md
 ├── main.py                  # CLI: прогон агента + инициализация Phoenix
 ├── eval_golden.py           # прогон по golden set (+ --runs для стабильности)
-├── serve_phoenix.bat / .ps1 # запуск коллектора Phoenix (Windows, с флагами)
+├── serve_phoenix.bat/.ps1/.sh # запуск коллектора Phoenix (Windows/macOS/Linux)
 ├── examples/                # пример запроса и результата (example_run.md)
 ├── src/
 │   ├── __init__.py

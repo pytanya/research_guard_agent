@@ -1,0 +1,12 @@
+2026-08-06 19:39:39,674 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-06 19:40:03,375 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.schemas
+2026-08-06 19:40:03,427 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.tables
+2026-08-06 19:40:03,495 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.types
+2026-08-06 19:40:03,543 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.constraints
+2026-08-06 19:40:03,643 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.defaults
+2026-08-06 19:40:03,655 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.comments
+2026-08-06 19:44:38,496 | WARNING | opentelemetry.instrumentation.instrumentor | Attempting to instrument while already instrumented
+2026-08-06 19:45:28,076 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-06 19:45:51,666 | INFO    | agent.tools | search_web: yandex вернул 5 результатов
+2026-08-06 19:45:52,536 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-06 19:46:22,105 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"

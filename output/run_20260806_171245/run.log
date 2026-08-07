@@ -1,0 +1,20 @@
+2026-08-06 17:12:51,460 | INFO    | phoenix.config | 📋 Ensuring phoenix working directory: C:\Users\hppro\.phoenix
+2026-08-06 17:12:56,086 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.schemas
+2026-08-06 17:12:56,087 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.tables
+2026-08-06 17:12:56,088 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.types
+2026-08-06 17:12:56,088 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.constraints
+2026-08-06 17:12:56,089 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.defaults
+2026-08-06 17:12:56,089 | INFO    | alembic.runtime.plugins | setup plugin alembic.autogenerate.comments
+2026-08-06 17:13:34,233 | WARNING | opentelemetry.instrumentation.instrumentor | Attempting to instrument while already instrumented
+2026-08-06 17:14:02,844 | WARNING | agent.llm | LLM routerai [qwen/qwen3.7-flash]: попытка 1/3 не удалась (Connection error.). Backoff 1.0с
+2026-08-06 17:14:11,070 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-06 17:14:26,729 | WARNING | agent.tools | search_web: yandex недоступен (HTTPSConnectionPool(host='searchapi.api.cloud.yandex.net', port=443): Max retries exceeded with url: /v2/web/search (Caused by ConnectTimeoutError(<HTTPSConnection(host='searchapi.api.cloud.yandex.net', port=443) at 0x263b2628e60>, 'Connection to searchapi.api.cloud.yandex.net timed out. (connect timeout=10.0)'))), пробую следующий
+2026-08-06 17:14:56,750 | WARNING | agent.tools | DDGS: поиск не уложился в таймаут 30.0s — пропускаю fallback
+2026-08-06 17:15:06,796 | WARNING | agent.tools | search_web: yandex недоступен (HTTPSConnectionPool(host='searchapi.api.cloud.yandex.net', port=443): Max retries exceeded with url: /v2/web/search (Caused by ConnectTimeoutError(<HTTPSConnection(host='searchapi.api.cloud.yandex.net', port=443) at 0x263b3a4f440>, 'Connection to searchapi.api.cloud.yandex.net timed out. (connect timeout=10.0)'))), пробую следующий
+2026-08-06 17:15:36,802 | WARNING | agent.tools | DDGS: поиск не уложился в таймаут 30.0s — пропускаю fallback
+2026-08-06 17:15:57,860 | WARNING | agent.llm | LLM routerai [qwen/qwen3.7-flash]: попытка 1/3 не удалась (Connection error.). Backoff 1.0с
+2026-08-06 17:15:59,044 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-06 17:16:03,135 | INFO    | agent.tools | search_web: yandex вернул 5 результатов
+2026-08-06 17:16:03,280 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-06 17:16:35,085 | WARNING | agent.llm | LLM routerai [google/gemini-3.5-flash-lite]: попытка 1/3 не удалась (Connection error.). Backoff 1.0с
+2026-08-06 17:16:36,200 | INFO    | httpx | HTTP Request: POST https://routerai.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
