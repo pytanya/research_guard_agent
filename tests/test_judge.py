@@ -2,7 +2,35 @@
 
 import pytest
 
+from src.config import Settings
 from src.judge import _parse_score
+
+
+def test_judge_fallback_models_chain():
+    """Судья: после JUDGE_MODEL идёт только его fallback-модель (другой вендор)."""
+    s = Settings(
+        RESEARCHER_MODEL="qwen/qwen3.7-flash",
+        JUDGE_MODEL="google/gemini-3.5-flash-lite",
+        JUDGE_FALLBACK_MODELS="google/gemini-3.1-flash-lite",
+    )
+    assert s.judge_fallback_models == [
+        "google/gemini-3.5-flash-lite",
+        "google/gemini-3.1-flash-lite",
+    ]
+
+
+def test_judge_fallback_not_researcher_models():
+    """Фолбек судьи не подхватывает модели исследователя (self-evaluation bias)."""
+    s = Settings(
+        RESEARCHER_MODEL="qwen/qwen3.7-flash",
+        JUDGE_MODEL="google/gemini-3.5-flash-lite",
+        FALLBACK_MODELS="deepseek/deepseek-v4-flash-0731,qwen/qwen3.7-flash",
+        JUDGE_FALLBACK_MODELS="google/gemini-3.1-flash-lite",
+    )
+    chain = s.judge_fallback_models
+    assert "qwen/qwen3.7-flash" not in chain
+    assert "deepseek/deepseek-v4-flash-0731" not in chain
+    assert chain[0] == "google/gemini-3.5-flash-lite"
 
 
 def test_plain_json():

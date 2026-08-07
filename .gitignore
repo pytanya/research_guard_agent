@@ -39,3 +39,4 @@ Thumbs.db
 # --- Кэш pytest ---
 .pytest_cache/
 
+/ПОДГОТОВКА_К_СДАЧЕ.md

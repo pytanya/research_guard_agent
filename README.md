@@ -24,7 +24,7 @@
 | **Отдельная роль** | `role="judge"` → `JUDGE_MODEL` | Модель судьи не совпадает с моделью исследователя → модель не оценивает собственные ответы (self-evaluation bias исключён на уровне конфигурации) |
 | **Класс** | flash-lite | Достаточно мощная для критериальной оценки (factual_accuracy, completeness, structure), дешёвая, быстрая — оценка каждого ответа стоит доли цента |
 
-Итог: исследователь и судья — разные модели разных вендоров; судья извне китайского LLM-стека. Выбор зафиксирован в `.env`/`.env.example` (`JUDGE_MODEL`, `ROUTERAI_JUDGE_MODEL`, `OPENROUTER_JUDGE_MODEL`) и не захардкожен.
+Итог: исследователь и судья — разные модели разных вендоров; судья извне китайского LLM-стека. Выбор зафиксирован в `.env`/`.env.example` (`JUDGE_MODEL`, `ROUTERAI_JUDGE_MODEL`, `OPENROUTER_JUDGE_MODEL`) и не захардкожен. Для отказоустойчивости у судьи свой фолбек `JUDGE_FALLBACK_MODELS` (по умолчанию `google/gemini-3.1-flash-lite`) — он перебирает модели на том же провайдере, и это **отдельный список от `FALLBACK_MODELS`**, чтобы судья не деградировал на модели исследователя (сохраняется независимость оценки).
 
 Цены RouterAI в рублях: qwen3.7-flash 3,10₽/13₽ за 1M; deepseek-v4-flash 9₽/18₽ за 1M
 (конвертируются в USD для метрик бюджета через `RUB_TO_USD_RATE`).
@@ -62,7 +62,7 @@ flowchart TD
 
     JUDGE["Judge — LLM-as-judge<br/>google/gemini-3.5-flash-lite<br/>role=judge"] -->|score / verdict| MAIN
 
-    GR["Guardrails: injection-фильтр → валидация ответа → circuit breaker<br/>→ бюджет MAX_COST_USD → лимит шагов MAX_STEPS → SSRF → PII-маскирование"] -.-> AGENT
+    GR["Guardrails: injection-фильтр → контент-фильтр (мат/оскорбления/жаргон) → валидация ответа → circuit breaker<br/>→ бюджет MAX_COST_USD → лимит шагов MAX_STEPS → SSRF → PII-маскирование"] -.-> AGENT
 
     OBS["Наблюдаемость: JSONL-лог (request_id) · run.log · метрики · LLM-as-judge"] -.-> MAIN
 ```
@@ -71,13 +71,13 @@ flowchart TD
 
 | Блок | Что делает |
 |---|---|
-| LLM | OpenAI-совместимый SDK, **RouterAI** (primary, `LLM_PRIMARY_PROVIDER=routerai`) + **OpenRouter** (fallback) с аналогичными моделями (deepseek-v4-flash, qwen3.7-flash), у RouterAI — отдельный увеличенный таймаут `ROUTERAI_TIMEOUT`; отдельная модель судьи `JUDGE_MODEL` (google/gemini-3.5-flash-lite); retry с backoff (3 попытки: 1→2→4с), обработка 429/5xx/таймаутов |
+| LLM | OpenAI-совместимый SDK, **RouterAI** (primary, `LLM_PRIMARY_PROVIDER=routerai`) + **OpenRouter** (fallback, опционально — в РФ работает только под VPN) с аналогичными моделями (deepseek-v4-flash, qwen3.7-flash), у RouterAI — отдельный увеличенный таймаут `ROUTERAI_TIMEOUT`; отдельная модель судьи `JUDGE_MODEL` (google/gemini-3.5-flash-lite) со своим фолбеком `JUDGE_FALLBACK_MODELS` (google/gemini-3.1-flash-lite); retry с backoff (3 попытки: 1→2→4с), обработка 429/5xx/таймаутов |
 | Поиск | По приоритету `SEARCH_PRIMARY` (`yandex`/`tavily`, работают только настроенные движки — есть ключ); **DDGS** — всегда универсальный fallback. Таймауты `SEARCH_TIMEOUT`/`FETCH_TIMEOUT` |
 | Инструменты | `search_web`, `fetch_url` (таймаут 15с, лимит 8000 символов), `save_note` |
 | Метрики | `success`, `elapsed_sec`, `total_cost_usd`, `num_steps`, per-step метрики (инструмент, длительность, статус) |
 | Логирование | Rich-консоль + JSONL-лог шагов в `logs/run_<timestamp>.jsonl` + `output/run_<timestamp>/run.log` |
 | Phoenix (этап 2) | легкий режим: агент не поднимает собственный сервер, трейсы отправляются через `phoenix.otel.register()` + OpenInference-инструментирование OpenAI в отдельный коллектор `phoenix serve` (UI на http://localhost:6006) |
-| Guardrails (этап 2) | лимит бюджета `MAX_COST_USD`, валидация финального ответа, фильтр prompt-injection, circuit breaker (3 ошибки подряд → fail closed, с half-open cooldown 30с), SSRF-защита `fetch_url` (denylist приватных сетей), разметка веб-контента как данных (не инструкций), маскирование PII/секретов в логах |
+| Guardrails (этап 2) | лимит бюджета `MAX_COST_USD`, валидация финального ответа, фильтр prompt-injection, контент-фильтр входа (ненормативная лексика/оскорбления/жаргон), circuit breaker (3 ошибки подряд → fail closed, с half-open cooldown 30с), SSRF-защита `fetch_url` (denylist приватных сетей), разметка веб-контента как данных (не инструкций), маскирование PII/секретов в логах |
 | Evals (этап 2) | LLM-as-judge (score 0..10 + вердикт, отдельная модель `JUDGE_MODEL`), `eval_golden.py` по golden set, отчёты в `evals/` |
 
 ## Установка
@@ -170,6 +170,19 @@ python main.py "Что такое OpenTelemetry?"   # без --no-phoenix
 # откройте http://localhost:6006 — трейсы LLM-вызовов и инструментов
 ```
 
+Помимо авто-трассировки LLM-вызовов (OpenInference OpenAI Instrumentor) агент
+создаёт **кастомные спаны** всего конвейера (`src/tracing.py`), так что в UI
+виден не только вызов модели, но и логика поверх него:
+
+- `agent.run` — корневой спан прогона (вопрос, request_id, итог: success/confidence);
+- `guardrail.prompt_injection` — проверка вопроса на prompt-injection;
+- `guardrail.content_filter` — контент-фильтр (мат/оскорбления/жаргон);
+- `guardrail.validate_answer` — валидация финального ответа;
+- `tool.*` — вызовы инструментов (`search_web`, `fetch_url`, `save_note`) с аргументами и результатом.
+
+Если Phoenix не зарегистрирован — OTel использует no-op TracerProvider, спаны
+никуда не экспортируются, агенту это не мешает (graceful degrade).
+
 Скрипты `serve_phoenix.bat` / `serve_phoenix.ps1` / `serve_phoenix.sh` выставляют
 перечисленные env-переменные автоматически. Они отключают на хосте неиспользуемые
 фичи Phoenix 19.x, которые иначе замедляют/роняют/шумят старт: docs MCP-сервер
@@ -213,7 +226,10 @@ python eval_golden.py --limit 2 --no-phoenix   # быстрый прогон б�
 прогонов по каждому вопросу.
 
 Eval-прогон трассируется в Phoenix (если `PHOENIX_ENABLED=true` и не указан
-`--no-phoenix`).
+`--no-phoenix`). Помимо этого `eval_golden.py` загружает **golden set как
+датасет** во вкладку *Datasets* Phoenix (API `phoenix.client.Client` →
+`create_dataset`, таблица: question → input, expected → output, hint → metadata).
+Датасет виден в UI без прогона, из него же можно запускать эксперименты.
 
 ## Тестирование (unit)
 
@@ -222,7 +238,8 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-Покрыты: prompt-injection фильтр, валидация ответа, circuit breaker
+Покрыты: prompt-injection фильтр, контент-фильтр (мат/оскорбления/жаргон),
+валидация ответа, circuit breaker
 (open/half-open/closed), SSRF-защита (denylist, числовые формы IPv4, редиректы),
 парсинг судьи (LLM-as-judge), метрики, сбор фактов в partial-ответе.
 
@@ -235,7 +252,7 @@ research_guard_agent/
 ├── requirements.txt
 ├── README.md
 ├── main.py                  # CLI: прогон агента + инициализация Phoenix
-├── eval_golden.py           # прогон по golden set (+ --runs для стабильности)
+├── eval_golden.py           # прогон по golden set (+ --runs, загрузка датасета в Phoenix)
 ├── serve_phoenix.bat/.ps1/.sh # запуск коллектора Phoenix (Windows/macOS/Linux)
 ├── examples/                # пример запроса и результата (example_run.md)
 ├── src/
@@ -244,9 +261,10 @@ research_guard_agent/
 │   ├── llm_client.py        # RouterAI (primary) + OpenRouter (fallback), retry, cost
 │   ├── tools.py             # search_web / fetch_url (SSRF-safe) / save_note
 │   ├── agent.py             # цикл Reason → Act → Observe
-│   ├── guardrails.py        # injection-детектор, валидация ответа, circuit breaker
+│   ├── guardrails.py        # injection-детектор, контент-фильтр, валидация ответа, circuit breaker
 │   ├── judge.py             # LLM-as-judge (score/verdict/comment)
 │   ├── metrics.py           # MetricsCollector
+│   ├── tracing.py           # кастомные OpenInference-спаны (agent.run, guardrail.*, tool.*)
 │   └── logging_setup.py     # rich + JSONL + run.log
 ├── tests/                   # unit-тесты (agent/guardrails/SSRF/метрики/judge)
 └── evals/
@@ -266,14 +284,15 @@ research_guard_agent/
 | № | Защита | Тип | Место |
 |---|--------|-----|-------|
 | 1 | **Prompt-injection детектор** | Regex-эвристики на входе | [`guardrails.py`](src/guardrails.py:42) |
-| 2 | **Валидация финального ответа** | Проверка JSON-схемы (answer, sources, confidence, summary) | [`guardrails.py`](src/guardrails.py:63) |
-| 3 | **Circuit breaker** | 3 ошибки подряд → fail closed, half-open через 30с cooldown | [`guardrails.py`](src/guardrails.py:111) |
-| 4 | **Лимит бюджета** | `MAX_COST_USD` — остановка при превышении | [`agent.py`](src/agent.py:326) |
-| 5 | **Лимит шагов** | `MAX_STEPS` — остановка зацикливания | [`agent.py`](src/agent.py:301) |
-| 6 | **SSRF-защита** | Denylist + DNS-резолв IP (`ipaddress`) + парсер числовых форм IPv4 (127.1, 2130706433, 0x7f000001, octal) + проверка каждого редиректа | [`tools.py`](src/tools.py:361) |
-| 7 | **Разметка контента** | Веб-данные помечаются как `[ДАННЫЕ ДЛЯ АНАЛИЗА]`, а не как инструкции | [`agent.py`](src/agent.py:142) |
-| 8 | **Маскирование PII** | API-ключи, email, токены маскируются в JSONL-логах | [`logging_setup.py`](src/logging_setup.py:53) |
-| 9 | **Retry с backoff** | 3 попытки (1→2→4с) для transient-ошибок LLM | [`llm_client.py`](src/llm_client.py:196) |
+| 2 | **Контент-фильтр входа** | Ненормативная лексика, оскорбления, жаргонизмы (мат RU/EN, оскорбления, сленг) → блок запроса | [`guardrails.py`](src/guardrails.py:67) |
+| 3 | **Валидация финального ответа** | Проверка JSON-схемы (answer, sources, confidence, summary) | [`guardrails.py`](src/guardrails.py:63) |
+| 4 | **Circuit breaker** | 3 ошибки подряд → fail closed, half-open через 30с cooldown | [`guardrails.py`](src/guardrails.py:111) |
+| 5 | **Лимит бюджета** | `MAX_COST_USD` — остановка при превышении | [`agent.py`](src/agent.py:326) |
+| 6 | **Лимит шагов** | `MAX_STEPS` — остановка зацикливания | [`agent.py`](src/agent.py:301) |
+| 7 | **SSRF-защита** | Denylist + DNS-резолв IP (`ipaddress`) + парсер числовых форм IPv4 (127.1, 2130706433, 0x7f000001, octal) + проверка каждого редиректа | [`tools.py`](src/tools.py:361) |
+| 8 | **Разметка контента** | Веб-данные помечаются как `[ДАННЫЕ ДЛЯ АНАЛИЗА]`, а не как инструкции | [`agent.py`](src/agent.py:142) |
+| 9 | **Маскирование PII** | API-ключи, email, токены маскируются в JSONL-логах | [`logging_setup.py`](src/logging_setup.py:53) |
+| 10 | **Retry с backoff** | 3 попытки (1→2→4с) для transient-ошибок LLM | [`llm_client.py`](src/llm_client.py:196) |
 
 ### Уровень зрелости безопасности
 
@@ -294,6 +313,7 @@ research_guard_agent/
 | `ROUTERAI_JUDGE_MODEL` / `OPENROUTER_JUDGE_MODEL` | Модель судьи для конкретного провайдера |
 | `ROUTERAI_MODEL` / `OPENROUTER_MODEL` | Модель исследователя для конкретного провайдера (иначе `LLM_MODEL`) |
 | `FALLBACK_MODELS` | Дополнительные fallback-модели через запятую (после основной) |
+| `JUDGE_FALLBACK_MODELS` | Fallback-модели судьи через запятую (после `JUDGE_MODEL`, отдельный список от `FALLBACK_MODELS` — судья остаётся моделью другого вендора) |
 | `YANDEX_API_KEY` / `YANDEX_FOLDER_ID` | Yandex Search API |
 | `TAVILY_API_KEY` | Tavily (опциональный fallback поиска) |
 | `SEARCH_PRIMARY` | Поисковик по умолчанию (`yandex`/`tavily`); DDGS — всегда универсальный fallback |

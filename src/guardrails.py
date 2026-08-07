@@ -2,10 +2,11 @@
 Guardrails исследовательского агента.
 
 1. Prompt-injection фильтр на входе (эвристики).
-2. Валидация финального ответа (answer/sources/confidence).
-3. Circuit breaker: 3 ошибки подряд LLM/инструмента → fail closed,
+2. Контент-фильтр на входе: ненормативная лексика, оскорбления, жаргонизмы.
+3. Валидация финального ответа (answer/sources/confidence).
+4. Circuit breaker: 3 ошибки подряд LLM/инструмента → fail closed,
    с half-open cooldown (30с) для автоматического восстановления.
-4. Бюджет: MAX_COST_USD (проверка в цикле агента).
+5. Бюджет: MAX_COST_USD (проверка в цикле агента).
 """
 
 from __future__ import annotations
@@ -62,6 +63,124 @@ def check_prompt_injection(text: str) -> Dict[str, Any]:
             "confidence": min(0.5 + 0.15 * len(matched), 0.98),
         }
     return {"injection": False, "matched": [], "confidence": 0.0}
+
+
+# ----------------------------------------------------------------------
+# Контент-фильтр: ненормативная лексика / оскорбления / жаргонизмы
+# ----------------------------------------------------------------------
+# Категории и эвристики (регистронезависимые, применяются к lowercased тексту).
+# Подбор паттернов: характерные основы/слова, чтобы не блокировать обычные запросы.
+CONTENT_PATTERNS: Dict[str, List[str]] = {
+    "profanity": [
+        # русский мат и грубая лексика
+        r"ху(й|я|е|ё|и|ю)",
+        r"пизд",
+        r"бля(д|ть|ха|дь)?\b",
+        r"еб(ал|ат|ан|у|ёт|ёш|ет|ну)",
+        r"ёб",
+        r"залуп",
+        r"муд(ак|ац)",
+        r"говн",
+        r"гандон",
+        r"пидор",
+        r"сук(а|ин)",
+        r"шлюх",
+        r"долбо",
+        r"оху(й|ен|ев|ел)",
+        r"сос(ать|у|ёт|ёшь|и|ить)",
+        r"проститут",
+        r"выбляд",
+        r"нахер",
+        # английский мат
+        r"\bfuck(ing|er|ed|s|u)?\b",
+        r"\bshit(t?y|head)?\b",
+        r"\bbitch(es)?\b",
+        r"\basshole(s)?\b",
+        r"\bdick(head|s)?\b",
+        r"\bcunt(s)?\b",
+        r"\bmotherfuck(er|ing)?\b",
+        r"\bwhore(s)?\b",
+        r"\bslut(s)?\b",
+        r"\bbastard(s)?\b",
+        r"\bcocksucker(s)?\b",
+        r"\bpussy\b",
+        r"\bwanker(s)?\b",
+        r"\btwat(s)?\b",
+        r"\bbullshit\b",
+    ],
+    "insults": [
+        # русские оскорбления
+        r"идиот",
+        r"дебил",
+        r"кретин",
+        r"придурок",
+        r"недоумок",
+        r"имбицил",
+        r"урод",
+        r"тупиц",
+        r"олух",
+        r"мразь",
+        r"твар(ь|ью)",
+        r"сволоч",
+        r"скотин",
+        # английские оскорбления
+        r"\bidiot(s)?\b",
+        r"\bmoron(s)?\b",
+        r"\bimbecile(s)?\b",
+        r"\bretard(ed|s|ation)?\b",
+        r"\bstupid\b",
+    ],
+    "offensive_slang": [
+        # жаргонизмы и оскорбительный сленг
+        r"быдло",
+        r"чмо\b",
+        r"лох(и|и)?\b",
+        r"гопник",
+        r"алкаш",
+        r"шмара",
+        r"шалаву?",
+        r"черномазый",
+        r"чухна",
+        r"чурка",
+        r"хач",
+        r"\bjerk(s)?\b",
+        r"\bscumbag(s)?\b",
+        r"\bjackass(es)?\b",
+        r"\bschmuck(s)?\b",
+        r"\bposer(s)?\b",
+    ],
+}
+
+
+def check_inappropriate_content(text: str) -> Dict[str, Any]:
+    """
+    Контент-фильтр входа: ненормативная лексика, оскорбления, жаргонизмы.
+
+    Returns:
+        {"blocked": bool, "categories": {cat: [паттерны]},
+         "matched": [паттерны], "confidence": 0..1}
+    """
+    text_lower = (text or "").lower()
+    matched: List[str] = []
+    categories: Dict[str, List[str]] = {}
+    for category, patterns in CONTENT_PATTERNS.items():
+        hits = [p for p in patterns if re.search(p, text_lower)]
+        if hits:
+            categories[category] = hits
+            matched.extend(hits)
+    if matched:
+        return {
+            "blocked": True,
+            "categories": categories,
+            "matched": matched,
+            "confidence": min(0.5 + 0.15 * len(matched), 0.98),
+        }
+    return {
+        "blocked": False,
+        "categories": {},
+        "matched": [],
+        "confidence": 0.0,
+    }
 
 
 def validate_answer(result: Dict[str, Any]) -> Dict[str, Any]:

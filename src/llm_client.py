@@ -281,9 +281,13 @@ class LLMClient:
 
         for idx, provider in enumerate(providers):
             if self.role == "judge":
-                # Судья: только его модель (без общих fallback-моделей исследователя)
+                # Судья: его модель + отдельные fallback-модели судьи (без общих
+                # fallback-моделей исследователя — они другого вендора и привнесли
+                # бы self-evaluation bias).
                 provider_model = provider.get("judge_model") or self.settings.judge_model
-                models = [provider_model]
+                models = [provider_model] + [
+                    m for m in self.settings.judge_fallback_models if m != provider_model
+                ]
             else:
                 # Модели для этого провайдера: его модель первой, затем общие fallback
                 provider_model = provider.get("model") or self.settings.model

@@ -54,6 +54,13 @@ class Settings(BaseSettings):
         default="deepseek/deepseek-v4-flash-0731,qwen/qwen3.7-flash",
         description="Список fallback-моделей через запятую, если основная модель недоступна",
     )
+    # Fallback-модели судьи (через запятую). Пробуются после JUDGE_MODEL на том же
+    # провайдере. Отдельный список (не FALLBACK_MODELS): судья оценивает ответы
+    # сторонней моделью (другой вендор), иначе вернётся self-evaluation bias.
+    JUDGE_FALLBACK_MODELS: str = Field(
+        default="google/gemini-3.1-flash-lite",
+        description="Список fallback-моделей судьи через запятую, если JUDGE_MODEL недоступна",
+    )
 
     # --- Поиск ---
     YANDEX_API_KEY: str = Field(default="")
@@ -210,6 +217,18 @@ class Settings(BaseSettings):
         models = [m.strip() for m in self.FALLBACK_MODELS.split(",") if m.strip()]
         # Первой идёт основная модель активного провайдера
         base = self.model
+        return [base] + [m for m in models if m != base]
+
+    @property
+    def judge_fallback_models(self) -> List[str]:
+        """Список fallback-моделей судьи (после основной модели провайдера).
+
+        Отдельный список от FALLBACK_MODELS: судья — модель другого вендора,
+        фолбек также должен оставаться «чужим» для исследуемого стека.
+        """
+        models = [m.strip() for m in self.JUDGE_FALLBACK_MODELS.split(",") if m.strip()]
+        # Первой идёт основная модель судьи
+        base = self.judge_model
         return [base] + [m for m in models if m != base]
 
     @property

@@ -1,8 +1,13 @@
-"""Unit-тесты guardrails: prompt-injection, валидация ответа, circuit breaker."""
+"""Unit-тесты guardrails: prompt-injection, контент-фильтр, валидация ответа, circuit breaker."""
 
 import time
 
-from src.guardrails import CircuitBreaker, check_prompt_injection, validate_answer
+from src.guardrails import (
+    CircuitBreaker,
+    check_inappropriate_content,
+    check_prompt_injection,
+    validate_answer,
+)
 
 
 class TestPromptInjection:
@@ -27,6 +32,41 @@ class TestPromptInjection:
     def test_empty(self):
         res = check_prompt_injection("")
         assert res["injection"] is False
+
+
+class TestInappropriateContent:
+    def test_detects_russian_profanity(self):
+        res = check_inappropriate_content("Расскажи про хуй какой-то сервис?")
+        assert res["blocked"] is True
+        assert "profanity" in res["categories"]
+
+    def test_detects_english_profanity(self):
+        res = check_inappropriate_content("Tell me about this fucking service")
+        assert res["blocked"] is True
+        assert "profanity" in res["categories"]
+
+    def test_detects_insult(self):
+        res = check_inappropriate_content("Какой идиот написал этот код?")
+        assert res["blocked"] is True
+        assert "insults" in res["categories"]
+
+    def test_detects_slang(self):
+        res = check_inappropriate_content("Ты просто чмо и лох")
+        assert res["blocked"] is True
+        assert "offensive_slang" in res["categories"]
+
+    def test_clean_question_not_blocked(self):
+        res = check_inappropriate_content("Кто такой Альберт Эйнштейн?")
+        assert res["blocked"] is False
+        assert res["confidence"] == 0.0
+
+    def test_case_insensitive_english(self):
+        res = check_inappropriate_content("FUCK THIS")
+        assert res["blocked"] is True
+
+    def test_empty(self):
+        res = check_inappropriate_content("")
+        assert res["blocked"] is False
 
 
 class TestValidateAnswer:

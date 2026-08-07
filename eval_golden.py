@@ -40,6 +40,44 @@ from src.logging_setup import console
 GOLDEN_SET = Path(__file__).resolve().parent / "evals" / "golden_set.json"
 
 
+def upload_golden_to_phoenix(
+    items: list[dict], *, name: str = "golden_set", description: str = ""
+) -> dict:
+    """
+    Загрузить golden set как датасет в Phoenix (вкладка Datasets).
+
+    Требует запущенного `phoenix serve` (по умолчанию http://localhost:6006).
+    Возвращает dict: {ok, dataset_id, name, message}.
+    """
+    try:
+        import pandas as pd
+        from phoenix.client import Client
+    except ImportError as e:  # pragma: no cover - деградация без pandas/arize-phoenix
+        return {"ok": False, "message": f"phoenix/pandas недоступны: {e}"}
+
+    df = pd.DataFrame(items)
+    df = df.rename(columns={"question": "question", "expected": "expected", "hint": "hint"})
+
+    try:
+        client = Client()
+        dataset = client.datasets.create_dataset(
+            name=name,
+            dataframe=df,
+            input_keys=["question"],
+            output_keys=["expected"],
+            metadata_keys=["hint"],
+            dataset_description=description or "Golden set для ResearchGuardAgent (10 вопросов)",
+        )
+        return {
+            "ok": True,
+            "dataset_id": getattr(dataset, "dataset_id", None) or str(dataset),
+            "name": name,
+            "message": f"Датасет '{name}' загружен ({len(items)} примеров)",
+        }
+    except Exception as e:  # pragma: no cover - сеть/коллектор недоступны
+        return {"ok": False, "message": f"Не удалось загрузить датасет: {e}"}
+
+
 def normalize(text: str) -> str:
     return (text or "").lower().strip()
 
@@ -116,6 +154,13 @@ def main() -> int:
     llm = LLMClient()
     # Судья на своей модели (JUDGE_MODEL) — отдельно от модели исследователя.
     judge = Judge()
+
+    # Загрузка golden set как датасета в Phoenix (вкладка Datasets).
+    if phoenix_ok:
+        ds = upload_golden_to_phoenix(golden, name="golden_set")
+        console.print(f"[{'ok' if ds['ok'] else 'warn'}]Phoenix dataset: {ds['message']}[/{'ok' if ds['ok'] else 'warn'}]")
+        if not ds["ok"]:
+            console.print("[warn]Датасет не загружен — проверьте `phoenix serve`. Eval продолжится без датасета.[/warn]")
 
     started = time.monotonic()
     # results_all[run_idx] -> list[entry] (по вопросам)

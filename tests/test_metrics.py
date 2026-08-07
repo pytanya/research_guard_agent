@@ -26,10 +26,11 @@ def test_cost_accumulation():
     assert m.total_tokens == 4000
 
 
-def test_steps_and_elapsed():
+def test_steps_and_elapsed(monkeypatch):
     m = MetricsCollector()
+    clock = iter([100.0, 100.05])
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
     m.start()
-    time.sleep(0.01)
     m.add_step("search_web", duration=1.5, status="OK")
     m.add_step("fetch_url", duration=2.0, status="ERROR", detail="timeout")
     m.stop()
@@ -37,7 +38,7 @@ def test_steps_and_elapsed():
     assert d["num_steps"] == 2
     assert d["steps"][0]["tool"] == "search_web"
     assert d["steps"][1]["status"] == "ERROR"
-    assert d["elapsed_sec"] >= 0.01
+    assert d["elapsed_sec"] == 0.05
     assert d["steps"][0]["step_num"] == 1
     assert d["steps"][1]["step_num"] == 2
 

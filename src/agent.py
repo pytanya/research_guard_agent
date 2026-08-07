@@ -19,9 +19,18 @@ import time
 from typing import Any, Dict, List, Optional
 
 from . import config, metrics, tools
-from .guardrails import CircuitBreaker, check_prompt_injection, validate_answer
+from . import tracing
+from .guardrails import (
+    CircuitBreaker,
+    check_inappropriate_content,
+    check_prompt_injection,
+    validate_answer,
+)
 from .llm_client import LLMClient, LLMResponse
 from .logging_setup import JsonlStepLogger, console, print_panel
+
+from openinference.semconv.trace import OpenInferenceSpanKindValues as OISpanKind
+from openinference.semconv.trace import SpanAttributes as SpanAttrs
 
 logger = logging.getLogger("agent")
 
@@ -73,6 +82,7 @@ class ResearchAgent:
         self.max_cost_usd = max_cost_usd if max_cost_usd is not None else config.settings.MAX_COST_USD
         self.circuit_breaker = circuit_breaker or CircuitBreaker(failure_threshold=3)
         self.injection_result: Optional[Dict[str, Any]] = None
+        self.content_result: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     def _log_step(
@@ -133,7 +143,20 @@ class ResearchAgent:
             args = fn.get("arguments", "{}")
 
             start = time.monotonic()
-            result_str = tools.execute_tool(name, args)
+            with tracing.span(
+                f"tool.{name}",
+                kind=OISpanKind.TOOL,
+                attributes={
+                    SpanAttrs.TOOL_NAME: name,
+                    SpanAttrs.TOOL_CALL_ID: tc_id or "unknown",
+                },
+                input_value=args,
+            ) as tool_span:
+                result_str = tools.execute_tool(name, args)
+                tool_span.set_attribute(
+                    SpanAttrs.OUTPUT_VALUE,
+                    result_str[:8000],
+                )
             duration = time.monotonic() - start
 
             # Статус шага
@@ -282,6 +305,29 @@ class ResearchAgent:
 
     # ------------------------------------------------------------------
     def run(self, question: str) -> Dict[str, Any]:
+        """Запуск цикла исследования (обёртка с корневым OpenInference-спаном)."""
+        request_id = getattr(self.step_logger, "request_id", "") if self.step_logger else ""
+        with tracing.span(
+            "agent.run",
+            kind=OISpanKind.AGENT,
+            attributes={"request_id": request_id or "unknown"},
+            input_value=question,
+        ) as root_span:
+            result = self._run_impl(question)
+            root_span.set_attribute(
+                SpanAttrs.OUTPUT_VALUE,
+                tracing._as_text(
+                    {
+                        "success": result.get("success"),
+                        "stop_reason": result.get("stop_reason"),
+                        "confidence": result.get("confidence"),
+                        "summary": result.get("summary"),
+                    }
+                ),
+            )
+            return result
+
+    def _run_impl(self, question: str) -> Dict[str, Any]:
         """
         Запуск цикла исследования.
 
@@ -294,7 +340,16 @@ class ResearchAgent:
         success = False
 
         # --- Guardrail 1: prompt-injection на входе ---
-        self.injection_result = check_prompt_injection(question)
+        with tracing.span(
+            "guardrail.prompt_injection",
+            kind=OISpanKind.GUARDRAIL,
+            input_value=question,
+        ) as inj_span:
+            self.injection_result = check_prompt_injection(question)
+            inj_span.set_attribute(
+                SpanAttrs.OUTPUT_VALUE,
+                tracing._as_text(self.injection_result),
+            )
         if self.injection_result["injection"]:
             success = False
             stop_reason = "prompt_injection_blocked"
@@ -314,6 +369,41 @@ class ResearchAgent:
                 "success": False,
                 "stop_reason": stop_reason,
                 "injection": self.injection_result,
+                "metrics": self.metrics.to_dict(),
+            }
+
+        # --- Guardrail 1b: контент-фильтр входа (мат, оскорбления, жаргон) ---
+        with tracing.span(
+            "guardrail.content_filter",
+            kind=OISpanKind.GUARDRAIL,
+            input_value=question,
+        ) as cf_span:
+            self.content_result = check_inappropriate_content(question)
+            cf_span.set_attribute(
+                SpanAttrs.OUTPUT_VALUE,
+                tracing._as_text(self.content_result),
+            )
+        if self.content_result["blocked"]:
+            success = False
+            stop_reason = "inappropriate_content_blocked"
+            cats = ", ".join(self.content_result["categories"].keys())
+            console.print(
+                f"[err]В запросе обнаружена недопустимая лексика "
+                f"(категории: {cats}, уверенность "
+                f"{self.content_result['confidence']:.0%}). Запрос заблокирован.[/err]"
+            )
+            self.metrics.success = False
+            self.metrics.stop_reason = stop_reason
+            self.metrics.stop()
+            return {
+                "answer": "",
+                "sources": [],
+                "confidence": 0.0,
+                "summary": "Запрос заблокирован контент-фильтром (недопустимая лексика).",
+                "success": False,
+                "stop_reason": stop_reason,
+                "injection": self.injection_result,
+                "content": self.content_result,
                 "metrics": self.metrics.to_dict(),
             }
 
@@ -459,14 +549,26 @@ class ResearchAgent:
             )
 
         # --- Guardrail 3: валидация финального ответа ---
-        validation = validate_answer(
-            {
-                "answer": final_data.get("answer", ""),
-                "sources": final_data.get("sources", []),
+        with tracing.span(
+            "guardrail.validate_answer",
+            kind=OISpanKind.GUARDRAIL,
+            input_value={
                 "confidence": final_data.get("confidence", 0.0),
                 "summary": final_data.get("summary", ""),
-            }
-        )
+            },
+        ) as val_span:
+            validation = validate_answer(
+                {
+                    "answer": final_data.get("answer", ""),
+                    "sources": final_data.get("sources", []),
+                    "confidence": final_data.get("confidence", 0.0),
+                    "summary": final_data.get("summary", ""),
+                }
+            )
+            val_span.set_attribute(
+                SpanAttrs.OUTPUT_VALUE,
+                tracing._as_text(validation),
+            )
         if success and not validation["valid"]:
             success = False
             stop_reason = "invalid_answer"
@@ -489,6 +591,7 @@ class ResearchAgent:
             "validation": validation,
             "circuit_breaker": self.circuit_breaker.to_dict(),
             "injection": self.injection_result,
+            "content": self.content_result,
             "metrics": self.metrics.to_dict(),
         }
         return result

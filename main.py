@@ -194,6 +194,7 @@ def _save_dz_report(run_dir: Path, result: dict, judge_res: dict) -> Path:
     lines.append("## Guardrails")
     lines.append("")
     lines.append(f"- **prompt-injection:** {result.get('injection')}")
+    lines.append(f"- **контент-фильтр (мат/оскорбления/жаргон):** {result.get('content')}")
     lines.append(f"- **валидация ответа:** {result.get('validation')}")
     lines.append(f"- **circuit breaker:** {result.get('circuit_breaker')}")
     lines.append(f"- **бюджет (MAX_COST_USD):** $ {config.settings.MAX_COST_USD}")
@@ -215,8 +216,11 @@ def _save_dz_report(run_dir: Path, result: dict, judge_res: dict) -> Path:
             "В UI Phoenix (http://localhost:6006) видно: "
             "список трасс (traces) прогона агента; для каждого LLM-вызова — "
             "span с промптом, ответом, количеством токенов и стоимостью; "
-            "для инструментов — duration и результат. Трейсы группируются в проект "
-            "«default» (или в имя приложения из PHOENIX_PROJECT)."
+            "для инструментов — duration и результат. Помимо авто-трассировки "
+            "LLM создаются кастомные OpenInference-спаны конвейера: agent.run "
+            "(корень прогона), guardrail.prompt_injection, guardrail.content_filter, "
+            "guardrail.validate_answer и tool.*. Трейсы группируются в проект "
+            "PHOENIX_PROJECT_NAME (по умолчанию «research-guard-agent»)."
         )
     else:
         lines.append("Phoenix не запускался в этом прогоне (--no-phoenix).")
