@@ -148,7 +148,7 @@ class ResearchAgent:
                 kind=OISpanKind.TOOL,
                 attributes={
                     SpanAttrs.TOOL_NAME: name,
-                    SpanAttrs.TOOL_CALL_ID: tc_id or "unknown",
+                    "tool.call_id": tc_id or "unknown",
                 },
                 input_value=args,
             ) as tool_span:
